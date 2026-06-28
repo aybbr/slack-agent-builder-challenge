@@ -1,0 +1,30 @@
+[project]
+name = "tracey"
+version = "0.1.0"
+description = "Cross-domain data change intelligence agent for Slack"
+readme = "README.md"
+authors = [
+    { name = "Ayoub", email = "ayoub.briki@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "slack-bolt==1.28.0",
+    "fastmcp==3.4.2",  # FastMCP
+    "duckdb==1.5.4",
+    "pygithub>=2.9.1",
+    "python-dotenv>=1.2.2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "dbt-duckdb==1.10.1",
+    "pytest==9.1.1",
+    "pytest-mock==3.15.1",
+]
+
+[project.scripts]
+tracey = "tracey:main"
+
+[build-system]
+requires = ["uv_build>=0.9.18,<0.10.0"]
+build-backend = "uv_build"
