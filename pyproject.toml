@@ -23,7 +23,8 @@ dev = [
 ]
 
 [project.scripts]
-tracey = "tracey:main"
+mcp-server = "tracey.mcp_server.server:main"
+slack-bot = "tracey.slack_agent.app:main"
 
 [build-system]
 requires = ["uv_build>=0.9.18,<0.10.0"]
