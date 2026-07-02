@@ -1801,6 +1801,15 @@ wheels = [
 ]
 
 [[package]]
+name = "sqlglot"
+version = "30.12.0"
+source = { registry = "https://build.hubteam.com/pypi/simple/" }
+sdist = { url = "https://build.hubteam.com/pypi-safe/mirror/packages/43/ed/a6c45aec29353b6392ea34548c40af3ac6ffd6bc5572cf23b2ce250876fc/sqlglot-30.12.0.tar.gz", hash = "md5:06dda55e62ab9ea5f52a54f6d9918ef5" }
+wheels = [
+    { url = "https://build.hubteam.com/pypi-safe/mirror/packages/db/9e/82a390ecc85f066ff80affa01d195f744e3de60ad4d695b8de31c9a66da3/sqlglot-30.12.0-py3-none-any.whl", hash = "md5:f9b0a8bc3c94bd99a2e31c283ecef856" },
+]
+
+[[package]]
 name = "sqlparse"
 version = "0.5.5"
 source = { registry = "https://build.hubteam.com/pypi/simple/" }
@@ -1849,23 +1858,24 @@ name = "tracey"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "dbt-duckdb" },
     { name = "duckdb" },
     { name = "fastmcp" },
     { name = "pygithub" },
     { name = "python-dotenv" },
     { name = "slack-bolt" },
+    { name = "sqlglot" },
 ]
 
 [package.optional-dependencies]
 dev = [
-    { name = "dbt-duckdb" },
     { name = "pytest" },
     { name = "pytest-mock" },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "dbt-duckdb", marker = "extra == 'dev'", specifier = "==1.10.1" },
+    { name = "dbt-duckdb", specifier = "==1.10.1" },
     { name = "duckdb", specifier = "==1.5.4" },
     { name = "fastmcp", specifier = "==3.4.2" },
     { name = "pygithub", specifier = ">=2.9.1" },
@@ -1873,6 +1883,7 @@ requires-dist = [
     { name = "pytest-mock", marker = "extra == 'dev'", specifier = "==3.15.1" },
     { name = "python-dotenv", specifier = ">=1.2.2" },
     { name = "slack-bolt", specifier = "==1.28.0" },
+    { name = "sqlglot", specifier = ">=30.0.0" },
 ]
 provides-extras = ["dev"]
 

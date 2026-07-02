@@ -13,18 +13,22 @@ dependencies = [
     "duckdb==1.5.4",
     "pygithub>=2.9.1",
     "python-dotenv>=1.2.2",
+    "sqlglot>=30.0.0",
+    "dbt-duckdb==1.10.1",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "dbt-duckdb==1.10.1",
     "pytest==9.1.1",
     "pytest-mock==3.15.1",
 ]
 
 [project.scripts]
 mcp-server = "tracey.mcp_server.server:main"
-slack-bot = "tracey.slack_agent.app:main"
+slack-agent = "tracey.slack_agent.app:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
 
 [build-system]
 requires = ["uv_build>=0.9.18,<0.10.0"]

@@ -223,10 +223,8 @@ target/
 dbt_project/target/
 dbt_project/logs/
 .env
+.env.example
 __pycache__/
 *.pyc
-
-# Do NOT ignore our services directory
-!services/
-# Do NOT ignore our services directory
-!src/tracey/services/
+AGENTS.md
+ROADMAP.md
