@@ -1,0 +1,59 @@
+version: 2
+
+models:
+  - name: fct_sales_pipeline
+    description: "Final sales pipeline fact table"
+    meta:
+      domain: sales
+    columns:
+      - name: opportunity_id
+        description: "Primary key for opportunities"
+        tests:
+          - not_null
+      - name: lead_score
+        description: "Lead quality score (1-100)"
+      - name: stage
+        description: "Current sales stage"
+        tests:
+          - accepted_values:
+              arguments:
+                values:
+                  - prospecting
+                  - qualification
+                  - proposal
+                  - negotiation
+                  - closed_won
+                  - closed_lost
+      - name: amount
+        description: "Deal amount in USD"
+
+  - name: fct_revenue_recognition
+    description: "Revenue recognition fact table — depends on fct_sales_pipeline"
+    meta:
+      domain: finance
+    columns:
+      - name: opportunity_id
+        description: "Foreign key to fct_sales_pipeline"
+        tests:
+          - relationships:
+              arguments:
+                to: ref('fct_sales_pipeline')
+                field: opportunity_id
+      - name: lead_score_weighted
+        description: "Weighted lead score derived from fct_sales_pipeline.lead_score * 0.3"
+
+  - name: rpt_commissions
+    description: "Commission report — uses lead_score from pipeline"
+    meta:
+      domain: sales
+
+  - name: dim_customer
+    description: "Customer dimension table"
+    meta:
+      domain: sales
+    columns:
+      - name: customer_id
+        description: "Unique customer identifier"
+        tests:
+          - unique
+          - not_null

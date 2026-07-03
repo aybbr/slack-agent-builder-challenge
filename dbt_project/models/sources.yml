@@ -1,0 +1,9 @@
+version: 2
+
+sources:
+  - name: raw
+    schema: main
+    tables:
+      - name: raw_salesforce_opportunity
+      - name: raw_finance_revenue
+      - name: raw_customer
