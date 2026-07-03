@@ -18,7 +18,7 @@ seed-data:
 	uv run python scripts/seed_usage.py
 
 dbt-run:
-	cd dbt_project && uv run dbt deps && uv run dbt run && uv run dbt compile
+	cd dbt_project && uv run dbt deps && uv run dbt run && uv run dbt test && uv run dbt compile
 
 run-mcp:
 	uv run mcp-server

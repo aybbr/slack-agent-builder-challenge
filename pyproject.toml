@@ -29,6 +29,7 @@ slack-agent = "tracey.slack_agent.app:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+python_functions = ["itShould_", "itShouldnt_", "test_"]
 
 [build-system]
 requires = ["uv_build>=0.9.18,<0.10.0"]
