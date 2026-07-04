@@ -1,4 +1,3 @@
-import os
 from pathlib import Path
 
 import pytest
@@ -12,9 +11,3 @@ def project_root():
 @pytest.fixture
 def data_dir(project_root):
     return project_root / "data"
-
-
-@pytest.fixture
-def db_path(data_dir, tmp_path):
-    test_db = tmp_path / "test.duckdb"
-    return str(test_db)

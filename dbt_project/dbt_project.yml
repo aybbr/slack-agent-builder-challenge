@@ -1,0 +1,41 @@
+name: tracey_demo
+version: "1.0.0"
+
+profile: tracey_demo
+
+config-version: 2
+
+model-paths: ["models"]
+analysis-paths: ["analyses"]
+test-paths: ["tests"]
+seed-paths: ["seeds"]
+macro-paths: ["macros"]
+snapshot-paths: ["snapshots"]
+
+target-path: "target"
+clean-targets:
+  - "target"
+  - "dbt_packages"
+
+models:
+  tracey_demo:
+    staging:
+      +schema: staging
+      +materialized: view
+      +meta:
+        domain: staging
+    marts:
+      +schema: main
+      +materialized: table
+      dim_customer:
+        +meta:
+          domain: sales
+      fct_sales_pipeline:
+        +meta:
+          domain: sales
+      fct_revenue_recognition:
+        +meta:
+          domain: finance
+      rpt_commissions:
+        +meta:
+          domain: sales
