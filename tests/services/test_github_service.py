@@ -4,7 +4,7 @@ from tracey.services.github_service import annotate_pr
 
 
 class TestAnnotatePr:
-    @patch("github.Github")
+    @patch("tracey.services.github_service.Github")
     def itShould_post_comment_on_success(self, mock_github):
         mock_pr = MagicMock()
         mock_pr.html_url = "https://github.com/owner/repo/pull/42"
@@ -20,7 +20,7 @@ class TestAnnotatePr:
         assert result["pr_url"] == "https://github.com/owner/repo/pull/42"
         mock_pr.create_issue_comment.assert_called_once_with("Test summary")
 
-    @patch("github.Github")
+    @patch("tracey.services.github_service.Github")
     def itShould_return_error_on_api_failure(self, mock_github):
         from github import GithubException
 

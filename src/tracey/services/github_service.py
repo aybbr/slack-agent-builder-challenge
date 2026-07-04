@@ -1,5 +1,7 @@
 import logging
 
+from github import Github, GithubException
+
 logger = logging.getLogger(__name__)
 
 
@@ -23,11 +25,6 @@ def annotate_pr(
         {"error": "Failed to annotate PR: <message>"}
     """
     try:
-        from github import Github, GithubException
-    except ImportError:
-        return {"error": "PyGithub is not installed"}
-
-    try:
         pr_number = int(pr_id)
     except (ValueError, TypeError):
         return {"error": f"Invalid PR ID: {pr_id}"}
@@ -40,7 +37,4 @@ def annotate_pr(
         return {"success": True, "pr_url": pull.html_url}
     except GithubException as exc:
         logger.error("GitHub API error for PR %s: %s", pr_id, exc)
-        return {"error": f"Failed to annotate PR: {exc}"}
-    except Exception as exc:
-        logger.error("Unexpected error annotating PR %s: %s", pr_id, exc)
         return {"error": f"Failed to annotate PR: {exc}"}

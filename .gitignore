@@ -218,9 +218,8 @@ __marimo__/
 .streamlit/secrets.toml
 
 # Project-specific ignores
-data/*.duckdb
 target/
-dbt_project/target/
+!/dbt_project/target/
 dbt_project/logs/
 dbt_project/.user.yml
 .env
@@ -229,3 +228,6 @@ __pycache__/
 *.pyc
 AGENTS.md
 ROADMAP.md
+
+# opencode
+opencode.json
