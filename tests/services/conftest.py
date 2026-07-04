@@ -62,6 +62,7 @@ def sample_manifest_dict():
                 "name": "not_null_fct_sales_pipeline_opportunity_id",
                 "resource_type": "test",
                 "column_name": "opportunity_id",
+                "attached_node": "model.tracey_demo.fct_sales_pipeline",
                 "depends_on": {
                     "nodes": ["model.tracey_demo.fct_sales_pipeline"]
                 },
@@ -70,14 +71,32 @@ def sample_manifest_dict():
                 "name": "accepted_values_fct_sales_pipeline_stage",
                 "resource_type": "test",
                 "column_name": "stage",
+                "attached_node": "model.tracey_demo.fct_sales_pipeline",
                 "depends_on": {
                     "nodes": ["model.tracey_demo.fct_sales_pipeline"]
+                },
+            },
+            "test.tracey_demo.relationships_fct_revenue_recognition_opportunity_id__opportunity_id__ref_fct_sales_pipeline_.1a0ec672c0": {
+                "name": "relationships_fct_revenue_recognition_opportunity_id__opportunity_id__ref_fct_sales_pipeline_",
+                "resource_type": "test",
+                "column_name": "opportunity_id",
+                "attached_node": "model.tracey_demo.fct_revenue_recognition",
+                "test_metadata": {
+                    "name": "relationships",
+                    "kwargs": {"to": "ref('fct_sales_pipeline')", "field": "opportunity_id"},
+                },
+                "depends_on": {
+                    "nodes": [
+                        "model.tracey_demo.fct_sales_pipeline",
+                        "model.tracey_demo.fct_revenue_recognition",
+                    ]
                 },
             },
             "test.tracey_demo.unique_dim_customer_customer_id.b42affccd1": {
                 "name": "unique_dim_customer_customer_id",
                 "resource_type": "test",
                 "column_name": "customer_id",
+                "attached_node": "model.tracey_demo.dim_customer",
                 "depends_on": {
                     "nodes": ["model.tracey_demo.dim_customer"]
                 },

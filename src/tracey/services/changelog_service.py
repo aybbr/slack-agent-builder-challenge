@@ -3,6 +3,8 @@ from datetime import datetime
 
 import duckdb
 
+from tracey.utils.errors import error_response
+
 logger = logging.getLogger(__name__)
 
 
@@ -46,9 +48,9 @@ def get_last_change(asset_id: str, db_path: str) -> dict:
         logger.error(
             "DuckDB error querying schema_changelog for %s: %s", asset_id, exc
         )
-        return {"asset_id": asset_id, "error": f"Database error: {exc}"}
+        return error_response(asset_id, f"Database error: {exc}")
 
-    if result is None or len(result) == 0:
+    if result is None:
         return {"asset_id": asset_id, "last_change": None}
 
     changed_at = result[1]

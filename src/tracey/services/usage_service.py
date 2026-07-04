@@ -2,6 +2,8 @@ import logging
 
 import duckdb
 
+from tracey.utils.errors import error_response
+
 logger = logging.getLogger(__name__)
 
 
@@ -41,7 +43,7 @@ def get_usage(asset_id: str, db_path: str) -> dict:
         logger.error(
             "DuckDB error querying usage_stats for %s: %s", asset_id, exc
         )
-        return {"asset_id": asset_id, "error": f"Database error: {exc}"}
+        return error_response(asset_id, f"Database error: {exc}")
 
     by_domain = [
         {"domain": row[0], "queries": row[1], "dashboards": row[2]}

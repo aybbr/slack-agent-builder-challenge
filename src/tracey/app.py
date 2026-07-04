@@ -1,6 +1,10 @@
 import logging
 import os
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
 from starlette.applications import Starlette
 from starlette.responses import JSONResponse
 from starlette.routing import Route
@@ -16,7 +20,6 @@ logger = logging.getLogger(__name__)
 
 
 async def health(request):
-    """Return a simple health check response."""
     return JSONResponse({"status": "ok"})
 
 
@@ -33,7 +36,6 @@ app = Starlette(
         Route(
             "/mcp",
             endpoint=SlackSignatureMiddleware(mcp_app),
-            methods=["POST"],
         ),
     ],
     lifespan=mcp_app.lifespan,
@@ -41,13 +43,6 @@ app = Starlette(
 
 
 def main() -> None:
-    """Start the Tracey application server.
-
-    Reads ``PORT`` from the environment (Railway standard) with a
-    fallback to ``FASTMCP_PORT`` (8000) for local development.
-    Binds to ``0.0.0.0`` so the server is reachable from outside
-    the container.
-    """
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",

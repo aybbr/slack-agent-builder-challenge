@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 _DUCKDB_PATH = os.environ.get("DUCKDB_PATH", "data/demo.duckdb")
 _MANIFEST_PATH = os.environ.get("MANIFEST_PATH", "dbt_project/target/manifest.json")
-_COMPILED_DIR = os.environ.get("COMPILED_DIR", "dbt_project")
+_DBT_PROJECT_DIR = os.environ.get("DBT_PROJECT_DIR", "dbt_project")
 _GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
 _GITHUB_REPO = os.environ.get("GITHUB_REPO", "")
 _SLACK_SIGNING_SECRET = os.environ.get("SLACK_SIGNING_SECRET", "")
@@ -133,7 +133,7 @@ def tool_get_column_lineage(asset_id: str, column_name: str) -> dict:
     if not column_name or not column_name.strip():
         return {"error": "column_name must be a non-empty string"}
     return get_column_lineage(
-        asset_id.strip(), column_name.strip(), _MANIFEST_PATH, _COMPILED_DIR
+        asset_id.strip(), column_name.strip(), _MANIFEST_PATH, _DBT_PROJECT_DIR
     )
 
 
