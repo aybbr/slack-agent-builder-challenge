@@ -1,6 +1,8 @@
 import json
 import logging
+
 import sqlglot
+import sqlglot.errors
 import sqlglot.expressions as exp
 from pathlib import Path
 
@@ -12,6 +14,7 @@ from tracey.services._manifest_helpers import (
     _resolve_asset_id,
     _topological_sort,
 )
+from tracey.utils.errors import error_response
 
 logger = logging.getLogger(__name__)
 
@@ -29,18 +32,18 @@ def get_lineage(asset_id: str, manifest_path: str) -> dict:
 
     Returns:
         Dict with asset_id, domain, upstream, and downstream lists.
-        On error, returns {"error": "..."}.
+        On error, returns error_response(asset_id, message).
     """
     try:
         nodes = _load_manifest(manifest_path)
         unique_id = _resolve_asset_id(asset_id, nodes)
     except (ValueError, FileNotFoundError, json.JSONDecodeError) as exc:
         logger.error("Failed to load manifest for lineage: %s", exc)
-        return {"error": str(exc)}
+        return error_response(asset_id, str(exc))
 
     node = _get_node(unique_id, nodes)
     if node is None:
-        return {"error": f"Node '{unique_id}' not found in manifest"}
+        return error_response(asset_id, f"Node '{unique_id}' not found in manifest")
 
     asset_domain = node.get("meta", {}).get("domain", "unknown")
 
@@ -82,18 +85,18 @@ def get_migration_order(asset_id: str, manifest_path: str) -> dict:
 
     Returns:
         Dict with ordered migration plan including domain and cross-domain tags.
-        On error, returns {"error": "..."}.
+        On error, returns error_response(asset_id, message).
     """
     try:
         nodes = _load_manifest(manifest_path)
         unique_id = _resolve_asset_id(asset_id, nodes)
     except (ValueError, FileNotFoundError, json.JSONDecodeError) as exc:
         logger.error("Failed to load manifest for migration order: %s", exc)
-        return {"error": str(exc)}
+        return error_response(asset_id, str(exc))
 
     node = _get_node(unique_id, nodes)
     if node is None:
-        return {"error": f"Node '{unique_id}' not found in manifest"}
+        return error_response(asset_id, f"Node '{unique_id}' not found in manifest")
 
     asset_domain = node.get("meta", {}).get("domain", "unknown")
 
@@ -103,7 +106,7 @@ def get_migration_order(asset_id: str, manifest_path: str) -> dict:
     try:
         sorted_ids = _topological_sort(all_ids, nodes)
     except ValueError as exc:
-        return {"error": str(exc)}
+        return error_response(asset_id, str(exc))
 
     order = []
     order_num = 0
@@ -139,6 +142,11 @@ def get_column_lineage(
     Parses compiled SQL files for all transitive downstream models and
     detects references to the given column via AST walking.
 
+    Each usage entry includes a ``confidence`` field:
+    ``"high"`` when the column reference is qualified with a table alias
+    that matches the upstream model; ``"low"`` when the column name appears
+    without a qualifying table reference.
+
     Args:
         asset_id: Short model name containing the column.
         column_name: Column name to trace.
@@ -146,14 +154,15 @@ def get_column_lineage(
         compiled_dir: Directory containing compiled SQL files.
 
     Returns:
-        Dict with downstream_usages list. On error, returns {"error": "..."}.
+        Dict with asset_id, column_name, downstream_usages list, and
+        warnings list. On error, returns error_response(asset_id, message).
     """
     try:
         nodes = _load_manifest(manifest_path)
         unique_id = _resolve_asset_id(asset_id, nodes)
     except (ValueError, FileNotFoundError, json.JSONDecodeError) as exc:
         logger.error("Failed to load manifest for column lineage: %s", exc)
-        return {"error": str(exc)}
+        return error_response(asset_id, str(exc), column_name=column_name)
 
     downstream_ids = _get_downstream_models(unique_id, nodes)
     compiled_base = Path(compiled_dir)
@@ -179,7 +188,7 @@ def get_column_lineage(
 
         sql_text = compiled_path.read_text()
         child_usages = _find_column_usages(
-            sql_text, asset_id, column_name, child_name
+            sql_text, asset_id, column_name, child_name, warnings
         )
         usages.extend(child_usages)
 
@@ -196,13 +205,16 @@ def _find_column_usages(
     upstream_model: str,
     column_name: str,
     downstream_model: str,
+    warnings_out: list[str],
 ) -> list[dict]:
     """Parse SQL with SQLGlot and find column references from the upstream model."""
 
     try:
         parsed = sqlglot.parse(sql_text, read="duckdb")
-    except Exception:
-        logger.warning("Failed to parse SQL for %s", downstream_model)
+    except sqlglot.errors.ParseError as exc:
+        msg = f"Failed to parse SQL for {downstream_model}: {exc}"
+        logger.warning(msg)
+        warnings_out.append(msg)
         return []
 
     alias_map = _build_alias_map(parsed, upstream_model)
@@ -228,6 +240,7 @@ def _find_column_usages(
                 "model": downstream_model,
                 "column": output_column if output_column else col_name,
                 "usage_type": usage_type,
+                "confidence": "high" if table_ref else "low",
             })
 
     return results
@@ -258,7 +271,13 @@ def _get_table_ref(node: exp.Column) -> str | None:
 def _build_alias_map(
     parsed_statements: list, upstream_model: str
 ) -> set[str]:
-    """Build a set of known aliases/references for the upstream model."""
+    """Build a set of known aliases/references for the upstream model.
+
+    Walks the AST for ``Table`` nodes whose bare name matches
+    ``upstream_model``.  For schema-qualified identifiers (e.g.
+    ``"demo"."main_main"."fct_sales_pipeline"``), SQLGlot returns the
+    last segment as ``node.name``, so matching still works.
+    """
     aliases: set[str] = {upstream_model.lower()}
     aliases.add(f'"{upstream_model.lower()}"')
 

@@ -223,6 +223,7 @@ target/
 dbt_project/logs/
 dbt_project/.user.yml
 .env
+.env.example
 __pycache__/
 *.pyc
 AGENTS.md
