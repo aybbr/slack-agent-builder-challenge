@@ -1,11 +1,13 @@
 import json
 import logging
 from collections import deque
+from functools import lru_cache
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
 
+@lru_cache(maxsize=1)
 def _load_manifest(manifest_path: str) -> dict[str, dict]:
     """Load manifest.json and return model + test nodes keyed by unique_id.
 
