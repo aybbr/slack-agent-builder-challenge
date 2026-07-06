@@ -55,7 +55,7 @@ def main() -> None:
         )
 
     host = os.environ.get("FASTMCP_HOST", "0.0.0.0")
-    port = int(os.environ.get("PORT", os.environ.get("FASTMCP_PORT", "8000")))
+    port = int(os.environ.get("FASTMCP_PORT", os.environ.get("PORT", "8000")))
 
     logger.info(
         "Starting Tracey on %s:%d (signature check: %s)",
