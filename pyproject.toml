@@ -9,13 +9,14 @@ authors = [
 requires-python = ">=3.12"
 dependencies = [
     "aiohttp==3.14.1",
-    "slack-bolt==1.28.0",
+    "slack-bolt==1.29.0",
     "fastmcp==3.4.2",
     "duckdb==1.5.4",
     "pygithub>=2.9.1",
     "python-dotenv>=1.2.2",
     "sqlglot>=30.0.0",
     "dbt-duckdb==1.10.1",
+    "claude-agent-sdk==0.2.110",
 ]
 
 [project.optional-dependencies]

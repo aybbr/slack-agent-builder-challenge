@@ -8,6 +8,8 @@ from datetime import datetime, timezone
 
 from slack_sdk.errors import SlackApiError
 
+from tracey.agent.deps import TraceyDeps
+from tracey.agent.loop import run_tracey_agent
 from tracey.services.changelog_service import get_last_change
 from tracey.services.lineage_service import (
     get_column_lineage,
@@ -17,6 +19,7 @@ from tracey.services.lineage_service import (
 from tracey.services.test_service import get_tests
 from tracey.services.usage_service import get_usage
 from tracey.slack_agent.cards import (
+    _actions_block,
     build_checklist_blocks,
     build_cross_team_summary_blocks,
     build_impact_card,
@@ -26,9 +29,12 @@ from tracey.slack_agent.cards import (
     build_pr_modal,
     build_stale_thread_block,
 )
-from tracey.slack_agent.triggers import detect_trigger
+from tracey.slack_agent.prefilter import has_model_mention as _prefilter_check
+from tracey.slack_agent.session_store import SessionStore
 
 logger = logging.getLogger(__name__)
+
+session_store = SessionStore()
 
 _MANIFEST_PATH = os.environ.get("MANIFEST_PATH", "dbt_project/target/manifest.json")
 _DUCKDB_PATH = os.environ.get("DUCKDB_PATH", "data/demo.duckdb")
@@ -51,11 +57,7 @@ _ANALYSIS_CACHE: dict[tuple[str, str], dict] = {}
 
 
 def register_handlers(bolt_app) -> None:
-    """Register all message and action handlers on the Bolt app instance.
-
-    Args:
-        bolt_app: An ``AsyncApp`` instance from ``slack_bolt``.
-    """
+    """Register all message and action handlers on the Bolt app instance."""
     bolt_app.message(re.compile(r".*"))(handle_message)
     bolt_app.action("start_cross_team_review")(handle_start_cross_team_review)
     bolt_app.action("generate_migration_plan")(handle_generate_migration_plan)
@@ -70,20 +72,15 @@ def register_handlers(bolt_app) -> None:
 async def handle_message(
     event: dict,
     client,
-    say,
+    say_stream,
+    set_status,
     context,
 ) -> None:
-    """Handle incoming channel messages for trigger detection and analysis.
+    """Handle incoming channel messages with prefilter gate and LLM agent.
 
-    Skips bot messages, edits, and messages outside target channels.
-    On trigger, fires parallel analysis, builds a Block Kit impact card,
-    and posts it to the channel.
-
-    Args:
-        event: Slack event payload.
-        client: ``slack_sdk.web.async_client.AsyncWebClient``.
-        say: Bolt ``say()`` utility for posting messages.
-        context: Bolt context dict.
+    The prefilter cheaply detects model mentions; when found, invokes the
+    Claude-powered agent for intelligent intent detection. The agent owns
+    the response — we stream its output and append action button blocks.
     """
     try:
         if event.get("subtype") is not None:
@@ -102,44 +99,60 @@ async def handle_message(
         if cache_key in PROCESSED_MESSAGES:
             return
 
-        trigger = detect_trigger(text)
-        if trigger is None:
+        model_name = _prefilter_check(text)
+        if model_name is None:
             return
+
+        logger.info(
+            "Model mention detected — model=%s channel=%s user=%s",
+            model_name,
+            channel_id,
+            event.get("user", "?"),
+        )
 
         PROCESSED_MESSAGES.add(cache_key)
         _trim_processed()
 
-        try:
-            await client.reactions_add(
-                channel=channel_id,
-                timestamp=message_ts,
-                name="eyes",
-            )
-        except SlackApiError as exc:
-            logger.warning("Failed to add :eyes: reaction: %s", exc)
-
-        analysis = await _run_analysis(
-            trigger["model"],
-            trigger.get("column"),
-            client,
-        )
-
-        analysis["model"] = trigger["model"]
-        analysis["intent"] = trigger["intent"]
-        analysis["column"] = trigger.get("column")
-        analysis["channel_id"] = channel_id
-        analysis["message_ts"] = message_ts
-
-        _ANALYSIS_CACHE[cache_key] = analysis
+        _ANALYSIS_CACHE[cache_key] = {
+            "model": model_name,
+            "channel_id": channel_id,
+            "message_ts": message_ts,
+        }
         _trim_cache()
 
-        blocks = build_impact_card(analysis)
-        await client.chat_postMessage(
-            channel=channel_id,
-            thread_ts=message_ts,
-            blocks=blocks,
-            text=f"Impact analysis for {trigger['model']}",
+        thread_ts = event.get("thread_ts", message_ts)
+        deps = TraceyDeps(
+            client=client,
+            user_id=event.get("user", ""),
+            channel_id=channel_id,
+            thread_ts=thread_ts,
+            message_ts=message_ts,
+            user_token=_SLACK_USER_TOKEN,
         )
+
+        existing_session_id = session_store.get_session(channel_id, thread_ts)
+        await set_status(
+            status="Analysing impact...",
+            loading_messages=[
+                "Tracing model dependencies...",
+                "Checking downstream impacts...",
+                "Gathering usage statistics...",
+            ],
+        )
+        response_text, new_session_id = await run_tracey_agent(
+            text,
+            session_id=existing_session_id,
+            deps=deps,
+        )
+
+        if new_session_id:
+            session_store.set_session(channel_id, thread_ts, new_session_id)
+
+        if response_text:
+            streamer = await say_stream()
+            await streamer.append(markdown_text=response_text)
+            action_block = _actions_block(model_name, channel_id, message_ts)
+            await streamer.stop(blocks=[action_block])
 
     except Exception:
         logger.exception("Error handling message in channel %s", event.get("channel"))
@@ -153,7 +166,7 @@ async def handle_message(
             logger.exception("Failed to send error message")
 
 
-# ---- Analysis orchestration ----
+# ---- Analysis orchestration (lazy: called on-demand by action handlers) ----
 
 
 async def _run_analysis(
@@ -165,16 +178,6 @@ async def _run_analysis(
 
     Uses ``asyncio.to_thread`` for synchronous service calls and
     named futures to avoid fragile index arithmetic.
-
-    Args:
-        model: The detected dbt model name.
-        column: Optional column name extracted from the message.
-        client: ``AsyncWebClient`` for Slack API calls.
-
-    Returns:
-        Dict with keys ``lineage``, ``migration_order``,
-        ``column_lineage`` (optional), ``usage``, ``last_change``,
-        ``tests``, ``stale_threads``, ``experts``.
     """
     futures: dict[str, asyncio.Future] = {
         "lineage": asyncio.to_thread(get_lineage, model, _MANIFEST_PATH),
@@ -204,7 +207,6 @@ async def _run_analysis(
     )
     analysis: dict = dict(zip(futures.keys(), results))
 
-    lineage = analysis.get("lineage", {})
     last_change = analysis.get("last_change", {})
 
     last_change_ts = None
@@ -220,18 +222,7 @@ async def _run_analysis(
 
 
 async def _search_slack_threads(model: str) -> list[dict]:
-    """Search Slack for past threads mentioning the model via RTS API.
-
-    Uses ``assistant.search.context`` with a user token. Falls back
-    gracefully to an empty list if the user token is not configured
-    or the search fails.
-
-    Args:
-        model: The model name to search for.
-
-    Returns:
-        List of message dicts from ``results.messages``.
-    """
+    """Search Slack for past threads mentioning the model via RTS API."""
     if not _SLACK_USER_TOKEN:
         logger.warning("SLACK_USER_TOKEN not set, skipping RTS search")
         return []
@@ -261,15 +252,7 @@ def _detect_stale_threads(
     rts_results: list[dict],
     last_change_ts: str | None,
 ) -> list[dict]:
-    """Identify threads that predate the last schema change.
-
-    Args:
-        rts_results: List of message match dicts from RTS search.
-        last_change_ts: ISO-8601 timestamp of the last schema change.
-
-    Returns:
-        List of stale thread dicts with ``ts``, ``channel``, and ``permalink``.
-    """
+    """Identify threads that predate the last schema change."""
     if not last_change_ts:
         return []
 
@@ -308,14 +291,7 @@ def _detect_stale_threads(
 
 
 def _rank_experts(rts_results: list[dict]) -> list[str]:
-    """Rank users by reply count in RTS search results.
-
-    Args:
-        rts_results: List of message match dicts from RTS search.
-
-    Returns:
-        List of up to 3 user IDs, ranked by reply frequency.
-    """
+    """Rank users by reply count in RTS search results."""
     user_counts: Counter[str] = Counter()
     for match in rts_results:
         user = match.get("author_user_id", "")
@@ -327,27 +303,49 @@ def _rank_experts(rts_results: list[dict]) -> list[str]:
 
 
 def _ts_to_datetime(ts: str) -> datetime:
-    """Convert a Slack timestamp (e.g. '1687531200.123456') to datetime.
-
-    Args:
-        ts: Slack timestamp string.
-
-    Returns:
-        A timezone-aware UTC datetime.
-    """
+    """Convert a Slack timestamp (e.g. '1687531200.123456') to datetime."""
     return datetime.fromtimestamp(float(ts), tz=timezone.utc)
+
+
+# ---- Lazy analysis helper for action handlers ----
+
+
+async def _get_or_create_analysis(
+    model: str,
+    channel_id: str,
+    message_ts: str,
+    client,
+) -> dict | None:
+    """Return cached analysis or lazily build it on first request.
+
+    Action handlers call this instead of looking up the cache directly,
+    so that analysis runs only when a user actually clicks a button.
+    """
+    key = (channel_id, message_ts)
+    cached = _ANALYSIS_CACHE.get(key) or {}
+
+    if "lineage" in cached:
+        return cached
+
+    try:
+        analysis = await _run_analysis(model, None, client)
+    except Exception:
+        logger.exception("Lazy analysis failed for model=%s", model)
+        return None
+
+    analysis["model"] = model
+    analysis["channel_id"] = channel_id
+    analysis["message_ts"] = message_ts
+    _ANALYSIS_CACHE[key] = analysis
+    _trim_cache()
+    return analysis
 
 
 # ---- Action handlers ----
 
 
 async def handle_start_cross_team_review(ack, body, client):
-    """Handle the 'Start Cross-Team Review' button click.
-
-    Creates a dedicated review channel, invites experts and the triggering
-    user, posts a Block Kit summary in the original thread, and pins it
-    in the new channel.
-    """
+    """Handle the 'Start Cross-Team Review' button click."""
     await ack()
     try:
         ctx = _parse_action_value(body)
@@ -357,7 +355,7 @@ async def handle_start_cross_team_review(ack, body, client):
         model = ctx["model"]
         channel_id = ctx["channel_id"]
         message_ts = ctx["message_ts"]
-        analysis = _lookup_analysis(channel_id, message_ts)
+        analysis = await _get_or_create_analysis(model, channel_id, message_ts, client)
         experts = analysis.get("experts", []) if analysis else []
 
         result = await client.conversations_create(
@@ -410,11 +408,7 @@ async def handle_start_cross_team_review(ack, body, client):
 
 
 async def handle_generate_migration_plan(ack, body, client):
-    """Handle the 'Generate Migration Plan' button click.
-
-    Posts a structured checklist as a Block Kit threaded reply built
-    from migration order and test results.
-    """
+    """Handle the 'Generate Migration Plan' button click."""
     await ack()
     try:
         ctx = _parse_action_value(body)
@@ -424,13 +418,13 @@ async def handle_generate_migration_plan(ack, body, client):
         model = ctx["model"]
         channel_id = ctx["channel_id"]
         message_ts = ctx["message_ts"]
-        analysis = _lookup_analysis(channel_id, message_ts)
+        analysis = await _get_or_create_analysis(model, channel_id, message_ts, client)
 
         if analysis is None:
             await client.chat_postMessage(
                 channel=channel_id,
                 thread_ts=message_ts,
-                text=":warning: Analysis data is no longer available. Please trigger a new impact analysis.",
+                text=":warning: Analysis data is not available. Please try again.",
             )
             return
 
@@ -459,11 +453,7 @@ async def handle_generate_migration_plan(ack, body, client):
 
 
 async def handle_mark_as_outdated(ack, body, client):
-    """Handle the 'Mark as Outdated' button click.
-
-    Posts a Block Kit outdated notice as a threaded reply within each
-    stale thread and confirms in the original thread.
-    """
+    """Handle the 'Mark as Outdated' button click."""
     await ack()
     try:
         ctx = _parse_action_value(body)
@@ -473,13 +463,13 @@ async def handle_mark_as_outdated(ack, body, client):
         model = ctx["model"]
         channel_id = ctx["channel_id"]
         message_ts = ctx["message_ts"]
-        analysis = _lookup_analysis(channel_id, message_ts)
+        analysis = await _get_or_create_analysis(model, channel_id, message_ts, client)
 
         if analysis is None:
             await client.chat_postMessage(
                 channel=channel_id,
                 thread_ts=message_ts,
-                text=":warning: Analysis data is no longer available. Please trigger a new impact analysis.",
+                text=":warning: Analysis data is not available. Please try again.",
             )
             return
 
@@ -532,12 +522,7 @@ async def handle_mark_as_outdated(ack, body, client):
 
 
 async def handle_annotate_pr(ack, body, client):
-    """Handle the 'Annotate PR' button click.
-
-    Opens a modal for collecting PR number and optional summary details.
-    Context (model_name, impact_summary, repo, token) is stored in
-    ``private_metadata`` and carried into the view_submission handler.
-    """
+    """Handle the 'Annotate PR' button click."""
     await ack()
     try:
         ctx = _parse_action_value(body)
@@ -547,7 +532,7 @@ async def handle_annotate_pr(ack, body, client):
         model = ctx["model"]
         channel_id = ctx["channel_id"]
         message_ts = ctx["message_ts"]
-        analysis = _lookup_analysis(channel_id, message_ts)
+        analysis = await _get_or_create_analysis(model, channel_id, message_ts, client)
 
         impact_summary = ""
         if analysis:
@@ -573,12 +558,7 @@ async def handle_annotate_pr(ack, body, client):
 
 
 async def handle_annotate_pr_submission(ack, body, client, view):
-    """Handle the modal submission for Annotate PR.
-
-    Extracts the PR number and optional custom summary, calls
-    ``github_service.annotate_pr``, and posts a Block Kit
-    confirmation in the original thread.
-    """
+    """Handle the modal submission for Annotate PR."""
     metadata_str = view.get("private_metadata", "{}")
     try:
         metadata = json.loads(metadata_str)
@@ -676,15 +656,7 @@ def _is_target_channel(channel_id: str) -> bool:
 
 
 def _parse_action_value(body: dict) -> dict | None:
-    """Extract context dict from a button action's ``value`` field.
-
-    Args:
-        body: The full Bolt action/block_actions payload.
-
-    Returns:
-        Parsed dict with ``model``, ``channel_id``, ``message_ts``,
-        or ``None`` if parsing fails.
-    """
+    """Extract context dict from a button action's ``value`` field."""
     try:
         actions = body.get("actions", [{}])
         value = actions[0].get("value", "{}")
@@ -694,26 +666,8 @@ def _parse_action_value(body: dict) -> dict | None:
         return None
 
 
-def _lookup_analysis(channel_id: str, message_ts: str) -> dict | None:
-    """Retrieve cached analysis results for a message.
-
-    Args:
-        channel_id: Slack channel ID.
-        message_ts: Slack message timestamp.
-
-    Returns:
-        The analysis dict, or ``None`` if not found.
-    """
-    return _ANALYSIS_CACHE.get((channel_id, message_ts))
-
-
 async def _send_error(client, body: dict) -> None:
-    """Send a generic error message to the user in the original thread.
-
-    Args:
-        client: ``AsyncWebClient``.
-        body: The action payload.
-    """
+    """Send a generic error message to the user in the original thread."""
     try:
         channel = body.get("channel", {}).get("id", "")
         thread_ts = body.get("message", {}).get("thread_ts", "")
@@ -729,16 +683,7 @@ async def _send_error(client, body: dict) -> None:
 async def _get_message_permalink(
     client, channel_id: str, message_ts: str
 ) -> str | None:
-    """Resolve a message permalink via chat.getPermalink.
-
-    Args:
-        client: ``AsyncWebClient``.
-        channel_id: Slack channel ID.
-        message_ts: Slack message timestamp.
-
-    Returns:
-        Permalink URL string, or ``None`` if the lookup fails.
-    """
+    """Resolve a message permalink via chat.getPermalink."""
     try:
         response = await client.chat_getPermalink(
             channel=channel_id,
