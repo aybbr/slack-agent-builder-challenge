@@ -7,15 +7,12 @@ from tests.mcp_server.conftest import server_module
 
 
 class TestToolRegistration:
-    """Verify that all 7 MCP tools are registered correctly."""
+    """Verify that all 4 Tracey-specific MCP tools are registered correctly."""
 
     EXPECTED_TOOLS = {
-        "get_lineage",
         "get_migration_order",
-        "get_column_lineage",
         "get_usage",
         "get_last_change",
-        "get_tests",
         "annotate_pr",
     }
 
@@ -24,14 +21,14 @@ class TestToolRegistration:
         provider = mcp_server._local_provider
         return set(provider._components.keys())
 
-    def itShould_register_seven_tools(self, mcp_server):
+    def itShould_register_four_tools(self, mcp_server):
         provider = mcp_server._local_provider
         tool_components = {
             k
             for k in provider._components
             if k.startswith("tool:")
         }
-        assert len(tool_components) == 7
+        assert len(tool_components) == 4
 
     def itShould_register_all_expected_tool_names(self, mcp_server):
         provider = mcp_server._local_provider
@@ -142,58 +139,6 @@ class TestSlackSignatureMiddleware:
         )
 
 
-class TestGetLineageTool:
-    """Verify the get_lineage tool delegates to lineage_service."""
-
-    def itShould_call_lineage_service(self, mcp_server, mocker):
-        mock_get = mocker.patch.object(
-            server_module, "get_lineage", return_value={"asset_id": "tst"}
-        )
-        tool = _find_tool(mcp_server, "get_lineage")
-        result = tool.fn("fct_sales_pipeline")
-        mock_get.assert_called_once_with("fct_sales_pipeline", "/tmp/test_manifest.json")
-        assert result == {"asset_id": "tst"}
-
-    def itShould_reject_empty_asset_id(self, mcp_server, mocker):
-        mocker.patch.object(server_module, "get_lineage")
-        tool = _find_tool(mcp_server, "get_lineage")
-        result = tool.fn("")
-        assert "error" in result
-        assert "asset_id" in result["error"].lower()
-
-    def itShould_strip_whitespace_from_asset_id(self, mcp_server, mocker):
-        mock_get = mocker.patch.object(
-            server_module, "get_lineage", return_value={"asset_id": "tst"}
-        )
-        tool = _find_tool(mcp_server, "get_lineage")
-        tool.fn("  fct_sales_pipeline  ")
-        mock_get.assert_called_once_with("fct_sales_pipeline", "/tmp/test_manifest.json")
-
-
-class TestColumnLineageTool:
-    """Verify the get_column_lineage tool delegates correctly."""
-
-    def itShould_call_column_lineage_service(self, mcp_server, mocker):
-        mock_get = mocker.patch.object(
-            server_module,
-            "get_column_lineage",
-            return_value={"asset_id": "tst", "column_name": "col", "downstream_usages": []},
-        )
-        tool = _find_tool(mcp_server, "get_column_lineage")
-        result = tool.fn("fct_sales_pipeline", "lead_score")
-        mock_get.assert_called_once_with(
-            "fct_sales_pipeline", "lead_score",
-            "/tmp/test_manifest.json", "/tmp/test_compiled",
-        )
-        assert result["asset_id"] == "tst"
-
-    def itShould_reject_empty_column_name(self, mcp_server, mocker):
-        mocker.patch.object(server_module, "get_column_lineage")
-        tool = _find_tool(mcp_server, "get_column_lineage")
-        result = tool.fn("fct_sales_pipeline", "")
-        assert "error" in result
-
-
 class TestAnnotatePRTool:
     """Verify the annotate_pr tool validates input and delegates."""
 
@@ -274,23 +219,6 @@ class TestLastChangeTool:
         tool = _find_tool(mcp_server, "get_last_change")
         result = tool.fn("fct_sales_pipeline")
         mock_change.assert_called_once_with("fct_sales_pipeline", "/tmp/test.duckdb")
-        assert result["asset_id"] == "tst"
-
-
-class TestGetTestsTool:
-    """Verify the get_tests tool delegates correctly."""
-
-    def itShould_call_test_service(self, mcp_server, mocker):
-        mock_tests = mocker.patch.object(
-            server_module,
-            "get_tests",
-            return_value={"asset_id": "tst", "tests": []},
-        )
-        tool = _find_tool(mcp_server, "get_tests")
-        result = tool.fn("fct_sales_pipeline")
-        mock_tests.assert_called_once_with(
-            "fct_sales_pipeline", "/tmp/test_manifest.json"
-        )
         assert result["asset_id"] == "tst"
 
 

@@ -1,3 +1,4 @@
+import json
 import os
 from unittest.mock import AsyncMock
 
@@ -47,6 +48,42 @@ def mock_slack_client():
     client.pins_add = AsyncMock()
     client.views_open = AsyncMock()
     return client
+
+
+@pytest.fixture
+def manifest_path(tmp_path):
+    """Create a minimal dbt manifest JSON for prefilter tests."""
+    manifest = {
+        "nodes": {
+            "model.tracey_demo.stg_salesforce__opportunity": {
+                "name": "stg_salesforce__opportunity",
+                "resource_type": "model",
+            },
+            "model.tracey_demo.stg_finance__revenue": {
+                "name": "stg_finance__revenue",
+                "resource_type": "model",
+            },
+            "model.tracey_demo.fct_sales_pipeline": {
+                "name": "fct_sales_pipeline",
+                "resource_type": "model",
+            },
+            "model.tracey_demo.fct_revenue_recognition": {
+                "name": "fct_revenue_recognition",
+                "resource_type": "model",
+            },
+            "model.tracey_demo.rpt_commissions": {
+                "name": "rpt_commissions",
+                "resource_type": "model",
+            },
+            "test.tracey_demo.not_null_test": {
+                "name": "not_null_test",
+                "resource_type": "test",
+            },
+        }
+    }
+    path = tmp_path / "manifest.json"
+    path.write_text(json.dumps(manifest))
+    return str(path)
 
 
 @pytest.fixture
