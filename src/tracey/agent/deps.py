@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from slack_sdk.web.async_client import AsyncWebClient
 
 
-@dataclass
+@dataclass(slots=True)
 class TraceyDeps:
     """Carries Slack API client and conversation context to agent tools."""
 

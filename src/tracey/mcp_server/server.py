@@ -20,8 +20,10 @@ _MANIFEST_PATH = os.environ.get("MANIFEST_PATH", "dbt_project/target/manifest.js
 _GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
 _GITHUB_REPO = os.environ.get("GITHUB_REPO", "")
 _SLACK_SIGNING_SECRET = os.environ.get("SLACK_SIGNING_SECRET", "")
-_SKIP_SIGNATURE = (
-    os.environ.get("TRACEY_SKIP_SIGNATURE_CHECK", "").lower() in ("1", "true", "yes")
+_SKIP_SIGNATURE = os.environ.get("TRACEY_SKIP_SIGNATURE_CHECK", "").lower() in (
+    "1",
+    "true",
+    "yes",
 )
 
 
@@ -40,9 +42,7 @@ class SlackSignatureMiddleware:
         self._app = app
         self._verifier = SignatureVerifier(_SLACK_SIGNING_SECRET)
 
-    async def __call__(
-        self, scope: Scope, receive: Receive, send: Send
-    ) -> None:
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
             await self._app(scope, receive, send)
             return
@@ -50,9 +50,7 @@ class SlackSignatureMiddleware:
         request = Request(scope, receive, send)
         body = await request.body()
 
-        if not _SKIP_SIGNATURE and not self._verifier.is_valid_request(
-            body, dict(request.headers)
-        ):
+        if not _SKIP_SIGNATURE and not self._verifier.is_valid_request(body, dict(request.headers)):
             response = JSONResponse(
                 {
                     "jsonrpc": "2.0",
@@ -143,12 +141,7 @@ def tool_annotate_pr(pr_id: str, summary: str) -> dict:
     if not summary or not summary.strip():
         return {"error": "summary must be a non-empty string"}
     if not _GITHUB_TOKEN or not _GITHUB_REPO:
-        return {
-            "error": (
-                "GITHUB_TOKEN and GITHUB_REPO environment variables "
-                "must be configured for PR annotation"
-            )
-        }
+        return {"error": ("GITHUB_TOKEN and GITHUB_REPO environment variables must be configured for PR annotation")}
     try:
         int(pr_id.strip())
     except ValueError:

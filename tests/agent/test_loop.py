@@ -38,10 +38,12 @@ class TestRunTraceyAgent:
     @pytest.mark.anyio
     async def itShould_produce_response_when_agent_returns_text(self, mocker):
         mocker.patch("tracey.agent.loop._DEEPSEEK_API_KEY", "sk-test-key")
-        mock_sdk, _ = _build_mock_sdk_client([
-            _mock_assistant_message("Impact analysis: 3 downstream models affected."),
-            _mock_result_message("session-123"),
-        ])
+        mock_sdk, _ = _build_mock_sdk_client(
+            [
+                _mock_assistant_message("Impact analysis: 3 downstream models affected."),
+                _mock_result_message("session-123"),
+            ]
+        )
         mocker.patch("tracey.agent.loop.ClaudeSDKClient", return_value=mock_sdk)
 
         deps = TraceyDeps(
@@ -61,9 +63,11 @@ class TestRunTraceyAgent:
     @pytest.mark.anyio
     async def itShould_return_empty_when_agent_takes_no_action(self, mocker):
         mocker.patch("tracey.agent.loop._DEEPSEEK_API_KEY", "sk-test-key")
-        mock_sdk, _ = _build_mock_sdk_client([
-            _mock_result_message("session-456"),
-        ])
+        mock_sdk, _ = _build_mock_sdk_client(
+            [
+                _mock_result_message("session-456"),
+            ]
+        )
         mocker.patch("tracey.agent.loop.ClaudeSDKClient", return_value=mock_sdk)
 
         deps = TraceyDeps(
@@ -105,10 +109,12 @@ class TestRunTraceyAgent:
     @pytest.mark.anyio
     async def itShould_resume_existing_session(self, mocker):
         mocker.patch("tracey.agent.loop._DEEPSEEK_API_KEY", "sk-test-key")
-        mock_sdk, _ = _build_mock_sdk_client([
-            _mock_assistant_message("Continuing analysis..."),
-            _mock_result_message("session-continued"),
-        ])
+        mock_sdk, _ = _build_mock_sdk_client(
+            [
+                _mock_assistant_message("Continuing analysis..."),
+                _mock_result_message("session-continued"),
+            ]
+        )
         mock_constructor = mocker.patch(
             "tracey.agent.loop.ClaudeSDKClient",
             return_value=mock_sdk,
@@ -134,11 +140,13 @@ class TestRunTraceyAgent:
     @pytest.mark.anyio
     async def itShould_concatenate_multiple_text_blocks(self, mocker):
         mocker.patch("tracey.agent.loop._DEEPSEEK_API_KEY", "sk-test-key")
-        mock_sdk, _ = _build_mock_sdk_client([
-            _mock_assistant_message("First part. "),
-            _mock_assistant_message("Second part."),
-            _mock_result_message("session-multi"),
-        ])
+        mock_sdk, _ = _build_mock_sdk_client(
+            [
+                _mock_assistant_message("First part. "),
+                _mock_assistant_message("Second part."),
+                _mock_result_message("session-multi"),
+            ]
+        )
         mocker.patch("tracey.agent.loop.ClaudeSDKClient", return_value=mock_sdk)
 
         deps = TraceyDeps(
@@ -152,7 +160,7 @@ class TestRunTraceyAgent:
             "drop fct_sales_pipeline",
             deps=deps,
         )
-        assert "First part. \nSecond part." == response_text
+        assert response_text == "First part. \nSecond part."
 
 
 def _mock_assistant_message(text: str):

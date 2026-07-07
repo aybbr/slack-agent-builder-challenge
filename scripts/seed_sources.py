@@ -1,6 +1,6 @@
-import duckdb
 from pathlib import Path
 
+import duckdb
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 DB_PATH = str(DATA_DIR / "demo.duckdb")

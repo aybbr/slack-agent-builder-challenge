@@ -26,11 +26,7 @@ def _get_model_names() -> frozenset[str]:
         Frozen set of model names discovered from manifest nodes.
     """
     nodes = _load_manifest(_MANIFEST_PATH)
-    return frozenset(
-        node["name"]
-        for uid, node in nodes.items()
-        if uid.startswith("model.")
-    )
+    return frozenset(node["name"] for uid, node in nodes.items() if uid.startswith("model."))
 
 
 def has_model_mention(text: str) -> str | None:

@@ -16,9 +16,7 @@ class TestGetLastChange:
         assert result["last_change"] is None
 
     def itShould_return_error_for_missing_db(self):
-        result = get_last_change(
-            "fct_sales_pipeline", "/nonexistent/db.duckdb"
-        )
+        result = get_last_change("fct_sales_pipeline", "/nonexistent/db.duckdb")
         assert "error" in result
 
     def itShould_include_all_change_fields(self, db_path):

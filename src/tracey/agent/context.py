@@ -7,6 +7,4 @@ from contextvars import ContextVar
 
 from tracey.agent.deps import TraceyDeps
 
-tracey_deps_var: ContextVar[TraceyDeps | None] = ContextVar(
-    "tracey_deps", default=None
-)
+tracey_deps_var: ContextVar[TraceyDeps | None] = ContextVar("tracey_deps", default=None)

@@ -1,10 +1,6 @@
 import logging
 import os
 
-from dotenv import load_dotenv
-
-load_dotenv()
-
 from slack_bolt.adapter.starlette.async_handler import AsyncSlackRequestHandler
 from slack_bolt.async_app import AsyncApp
 from starlette.applications import Starlette
@@ -56,13 +52,9 @@ def main() -> None:
     )
 
     if not _SLACK_BOT_TOKEN:
-        raise RuntimeError(
-            "SLACK_BOT_TOKEN environment variable is required."
-        )
+        raise RuntimeError("SLACK_BOT_TOKEN environment variable is required.")
     if not _SLACK_SIGNING_SECRET:
-        raise RuntimeError(
-            "SLACK_SIGNING_SECRET environment variable is required."
-        )
+        raise RuntimeError("SLACK_SIGNING_SECRET environment variable is required.")
 
     host = os.environ.get("SLACK_AGENT_HOST", "0.0.0.0")
     port = int(os.environ.get("SLACK_AGENT_PORT", os.environ.get("PORT", "8000")))

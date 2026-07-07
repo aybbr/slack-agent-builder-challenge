@@ -52,9 +52,7 @@ class SessionStore:
                 return None
             return entry["session_id"]
 
-    def set_session(
-        self, channel_id: str, thread_ts: str, session_id: str
-    ) -> None:
+    def set_session(self, channel_id: str, thread_ts: str, session_id: str) -> None:
         """Store session ID for a thread.
 
         Args:
@@ -74,11 +72,7 @@ class SessionStore:
         """Remove expired entries and enforce max entry limit."""
         now = time.time()
 
-        expired = [
-            k
-            for k, v in self._store.items()
-            if now - v["timestamp"] > self._ttl_seconds
-        ]
+        expired = [k for k, v in self._store.items() if now - v["timestamp"] > self._ttl_seconds]
         for k in expired:
             del self._store[k]
 

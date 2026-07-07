@@ -45,9 +45,7 @@ def get_last_change(asset_id: str, db_path: str) -> dict:
                 [asset_id],
             ).fetchone()
     except duckdb.Error as exc:
-        logger.error(
-            "DuckDB error querying schema_changelog for %s: %s", asset_id, exc
-        )
+        logger.error("DuckDB error querying schema_changelog for %s: %s", asset_id, exc)
         return error_response(asset_id, f"Database error: {exc}")
 
     if result is None:

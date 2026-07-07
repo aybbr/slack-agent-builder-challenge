@@ -34,9 +34,7 @@ from tracey.agent.tools import (
 logger = logging.getLogger(__name__)
 
 _DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
-_ANTHROPIC_BASE_URL = os.environ.get(
-    "ANTHROPIC_BASE_URL", "https://api.deepseek.com/anthropic"
-)
+_ANTHROPIC_BASE_URL = os.environ.get("ANTHROPIC_BASE_URL", "https://api.deepseek.com/anthropic")
 _DBT_PROJECT_DIR = os.environ.get("DBT_PROJECT_DIR", "dbt_project")
 _SLACK_MCP_URL = "https://mcp.slack.com/mcp"
 
@@ -91,8 +89,7 @@ async def run_tracey_agent(
     """
     if not _DEEPSEEK_API_KEY:
         return (
-            ":warning: DEEPSEEK_API_KEY is not configured. "
-            "Agent cannot run without an API key.",
+            ":warning: DEEPSEEK_API_KEY is not configured. Agent cannot run without an API key.",
             None,
         )
 

@@ -25,11 +25,7 @@ def _load_manifest(manifest_path: str) -> dict[str, dict]:
     with path.open() as f:
         raw = json.load(f)
     nodes = raw.get("nodes", {})
-    return {
-        uid: node
-        for uid, node in nodes.items()
-        if uid.startswith("model.") or uid.startswith("test.")
-    }
+    return {uid: node for uid, node in nodes.items() if uid.startswith("model.") or uid.startswith("test.")}
 
 
 def _get_node(unique_id: str, nodes: dict[str, dict]) -> dict | None:
@@ -52,18 +48,12 @@ def _resolve_asset_id(asset_id: str, nodes: dict[str, dict]) -> str:
     Raises:
         ValueError: If no match or multiple matches found.
     """
-    matches = [
-        uid
-        for uid, node in nodes.items()
-        if uid.startswith("model.") and node.get("name") == asset_id
-    ]
+    matches = [uid for uid, node in nodes.items() if uid.startswith("model.") and node.get("name") == asset_id]
     if len(matches) == 1:
         return matches[0]
     if len(matches) == 0:
         raise ValueError(f"Asset '{asset_id}' not found in manifest")
-    raise ValueError(
-        f"Ambiguous asset name '{asset_id}' matches {len(matches)} nodes"
-    )
+    raise ValueError(f"Ambiguous asset name '{asset_id}' matches {len(matches)} nodes")
 
 
 def _get_upstream_models(unique_id: str, nodes: dict[str, dict]) -> list[str]:
@@ -119,9 +109,7 @@ def _get_downstream_models(unique_id: str, nodes: dict[str, dict]) -> list[str]:
     return result
 
 
-def _topological_sort(
-    node_ids: list[str], nodes: dict[str, dict]
-) -> list[str]:
+def _topological_sort(node_ids: list[str], nodes: dict[str, dict]) -> list[str]:
     """Kahn's algorithm on the subgraph spanned by node_ids.
 
     Only considers edges between nodes that are both in node_ids.
@@ -138,7 +126,7 @@ def _topological_sort(
     """
     ids_set = set(node_ids)
 
-    in_degree: dict[str, int] = {uid: 0 for uid in node_ids}
+    in_degree: dict[str, int] = dict.fromkeys(node_ids, 0)
     adjacency: dict[str, list[str]] = {uid: [] for uid in node_ids}
 
     for uid in node_ids:
@@ -150,9 +138,7 @@ def _topological_sort(
                 adjacency.setdefault(dep, []).append(uid)
                 in_degree[uid] += 1
 
-    queue: deque[str] = deque(
-        uid for uid in node_ids if in_degree.get(uid, 0) == 0
-    )
+    queue: deque[str] = deque(uid for uid in node_ids if in_degree.get(uid, 0) == 0)
     result: list[str] = []
 
     while queue:

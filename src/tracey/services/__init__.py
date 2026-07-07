@@ -1,3 +1,5 @@
+"""Pure domain logic — no I/O framework dependencies."""
+
 from tracey.services.changelog_service import get_last_change
 from tracey.services.github_service import annotate_pr
 from tracey.services.lineage_service import (

@@ -232,3 +232,6 @@ SPECS.md
 
 # opencode
 opencode.json
+
+# pytest
+logs/

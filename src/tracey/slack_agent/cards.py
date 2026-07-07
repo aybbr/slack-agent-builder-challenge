@@ -38,7 +38,6 @@ def build_impact_card(analysis: dict) -> list[dict]:
     column_lineage = analysis.get("column_lineage")
     usage = analysis.get("usage", {})
     last_change = analysis.get("last_change", {})
-    tests_result = analysis.get("tests", {})
     stale_threads = analysis.get("stale_threads", [])
     experts = analysis.get("experts", [])
     channel_id = analysis.get("channel_id", "")
@@ -82,38 +81,46 @@ def build_checklist_blocks(
     """
     blocks: list[dict] = []
 
-    blocks.append({
-        "type": "header",
-        "text": {
-            "type": "plain_text",
-            "text": f"Migration Plan: {model_name}",
-            "emoji": True,
-        },
-    })
+    blocks.append(
+        {
+            "type": "header",
+            "text": {
+                "type": "plain_text",
+                "text": f"Migration Plan: {model_name}",
+                "emoji": True,
+            },
+        }
+    )
 
     test_status = _summarise_tests(tests, referential_tests)
-    blocks.append({
-        "type": "section",
-        "text": {
-            "type": "mrkdwn",
-            "text": f"*Test Status:* {test_status}",
-        },
-    })
-
-    if not migration_order:
-        blocks.append({
+    blocks.append(
+        {
             "type": "section",
             "text": {
                 "type": "mrkdwn",
-                "text": ":white_check_mark: No downstream models to migrate.",
+                "text": f"*Test Status:* {test_status}",
             },
-        })
+        }
+    )
+
+    if not migration_order:
+        blocks.append(
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": ":white_check_mark: No downstream models to migrate.",
+                },
+            }
+        )
         return blocks
 
-    blocks.append({
-        "type": "section",
-        "text": {"type": "mrkdwn", "text": "*Migration Steps:*"},
-    })
+    blocks.append(
+        {
+            "type": "section",
+            "text": {"type": "mrkdwn", "text": "*Migration Steps:*"},
+        }
+    )
 
     for step in migration_order:
         step_id = step.get("id", "?")
@@ -131,10 +138,12 @@ def build_checklist_blocks(
         tag_text = " " + " ".join(tags) if tags else ""
         text = f"{icon} *{step_id}* ({step_domain}){tag_text}"
 
-        blocks.append({
-            "type": "section",
-            "text": {"type": "mrkdwn", "text": text},
-        })
+        blocks.append(
+            {
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": text},
+            }
+        )
 
     return blocks
 
@@ -176,10 +185,7 @@ def build_stale_thread_block(
             "elements": [
                 {
                     "type": "mrkdwn",
-                    "text": (
-                        f"Original thread: <{thread_permalink}|"
-                        f"view in {thread_channel}>"
-                    ),
+                    "text": (f"Original thread: <{thread_permalink}|view in {thread_channel}>"),
                 },
             ],
         },
@@ -298,24 +304,23 @@ def build_pr_confirmation_blocks(
             "type": "section",
             "text": {
                 "type": "mrkdwn",
-                "text": (
-                    f":white_check_mark: Impact analysis annotated on "
-                    f"PR *{pr_id}* for `{model_name}`."
-                ),
+                "text": (f":white_check_mark: Impact analysis annotated on PR *{pr_id}* for `{model_name}`."),
             },
         },
     ]
 
     if pr_url:
-        blocks.append({
-            "type": "context",
-            "elements": [
-                {
-                    "type": "mrkdwn",
-                    "text": f"<{pr_url}|View PR #{pr_id}>",
-                },
-            ],
-        })
+        blocks.append(
+            {
+                "type": "context",
+                "elements": [
+                    {
+                        "type": "mrkdwn",
+                        "text": f"<{pr_url}|View PR #{pr_id}>",
+                    },
+                ],
+            }
+        )
 
     return blocks
 
@@ -352,31 +357,32 @@ def build_cross_team_summary_blocks(
             "type": "section",
             "text": {
                 "type": "mrkdwn",
-                "text": (
-                    f"A cross-team review has been initiated for "
-                    f"`{model_name}` in {channel_ref}."
-                ),
+                "text": (f"A cross-team review has been initiated for `{model_name}` in {channel_ref}."),
             },
         },
     ]
 
     if experts:
         mentions = ", ".join(f"<@{expert}>" for expert in experts)
-        blocks.append({
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": f"*Invited experts:* {mentions}",
-            },
-        })
+        blocks.append(
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"*Invited experts:* {mentions}",
+                },
+            }
+        )
     else:
-        blocks.append({
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": "_No experts identified. Invite relevant team members manually._",
-            },
-        })
+        blocks.append(
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": "_No experts identified. Invite relevant team members manually._",
+                },
+            }
+        )
 
     return blocks
 
@@ -493,23 +499,20 @@ def _add_structural_impact(
         usages = column_lineage.get("downstream_usages", [])
         if usages:
             models_using = {u["model"] for u in usages}
-            lines.append(
-                f"*Column `{column}` used in:* "
-                f"{', '.join(f'`{m}`' for m in sorted(models_using))}"
-            )
+            lines.append(f"*Column `{column}` used in:* {', '.join(f'`{m}`' for m in sorted(models_using))}")
             high_conf = [u for u in usages if u.get("confidence") == "high"]
             if high_conf:
                 types = {u.get("usage_type", "unknown") for u in high_conf}
-                lines.append(
-                    f"*Usage types:* {', '.join(sorted(types))}"
-                )
+                lines.append(f"*Usage types:* {', '.join(sorted(types))}")
         else:
             lines.append(f"*Column `{column}`:* No downstream usage detected")
 
-    blocks.append({
-        "type": "section",
-        "text": {"type": "mrkdwn", "text": "\n".join(lines)},
-    })
+    blocks.append(
+        {
+            "type": "section",
+            "text": {"type": "mrkdwn", "text": "\n".join(lines)},
+        }
+    )
 
 
 def _add_usage_section(blocks: list[dict], usage: dict) -> None:
@@ -521,15 +524,14 @@ def _add_usage_section(blocks: list[dict], usage: dict) -> None:
         f"*Total:* {total_queries} queries, {total_dashboards} dashboards",
     ]
     for entry in by_domain:
-        lines.append(
-            f"• *{entry['domain']}:* {entry['queries']} queries, "
-            f"{entry['dashboards']} dashboards"
-        )
+        lines.append(f"• *{entry['domain']}:* {entry['queries']} queries, {entry['dashboards']} dashboards")
 
-    blocks.append({
-        "type": "section",
-        "text": {"type": "mrkdwn", "text": "\n".join(lines)},
-    })
+    blocks.append(
+        {
+            "type": "section",
+            "text": {"type": "mrkdwn", "text": "\n".join(lines)},
+        }
+    )
 
 
 def _add_migration_preview(blocks: list[dict], migration_order: dict) -> None:
@@ -548,10 +550,12 @@ def _add_migration_preview(blocks: list[dict], migration_order: dict) -> None:
     if len(steps) > 5:
         lines.append(f"  _... and {len(steps) - 5} more_")
 
-    blocks.append({
-        "type": "section",
-        "text": {"type": "mrkdwn", "text": "\n".join(lines)},
-    })
+    blocks.append(
+        {
+            "type": "section",
+            "text": {"type": "mrkdwn", "text": "\n".join(lines)},
+        }
+    )
 
 
 def _add_social_impact(
@@ -573,10 +577,12 @@ def _add_social_impact(
     else:
         lines.append("*Stale threads:* None detected")
 
-    blocks.append({
-        "type": "section",
-        "text": {"type": "mrkdwn", "text": "\n".join(lines)},
-    })
+    blocks.append(
+        {
+            "type": "section",
+            "text": {"type": "mrkdwn", "text": "\n".join(lines)},
+        }
+    )
 
 
 def _actions_block(
@@ -584,11 +590,13 @@ def _actions_block(
     channel_id: str,
     message_ts: str,
 ) -> dict:
-    context = json.dumps({
-        "model": model,
-        "channel_id": channel_id,
-        "message_ts": message_ts,
-    })
+    context = json.dumps(
+        {
+            "model": model,
+            "channel_id": channel_id,
+            "message_ts": message_ts,
+        }
+    )
 
     return {
         "type": "actions",
@@ -645,14 +653,8 @@ def _summarise_tests(
     referential_tests: list[dict],
 ) -> str:
     total = len(tests) + len(referential_tests)
-    errors = sum(
-        1 for t in list(tests) + list(referential_tests)
-        if t.get("severity") == "error"
-    )
-    warns = sum(
-        1 for t in list(tests) + list(referential_tests)
-        if t.get("severity") == "warn"
-    )
+    errors = sum(1 for t in list(tests) + list(referential_tests) if t.get("severity") == "error")
+    warns = sum(1 for t in list(tests) + list(referential_tests) if t.get("severity") == "warn")
 
     parts = [f"{total} test(s)"]
     if errors:
@@ -664,9 +666,6 @@ def _summarise_tests(
 
     if referential_tests:
         ref_models = {t.get("owner", "?") for t in referential_tests}
-        result += (
-            f" (includes {len(referential_tests)} referential test(s) "
-            f"owned by {', '.join(sorted(ref_models))})"
-        )
+        result += f" (includes {len(referential_tests)} referential test(s) owned by {', '.join(sorted(ref_models))})"
 
     return result

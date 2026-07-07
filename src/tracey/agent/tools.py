@@ -235,9 +235,7 @@ async def search_slack_threads_tool(args: dict) -> dict:
         "properties": {
             "emoji_name": {
                 "type": "string",
-                "description": (
-                    "Slack emoji name without colons (e.g. 'eyes', 'tada', 'warning')"
-                ),
+                "description": ("Slack emoji name without colons (e.g. 'eyes', 'tada', 'warning')"),
             },
         },
         "required": ["emoji_name"],

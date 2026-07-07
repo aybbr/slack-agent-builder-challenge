@@ -7,7 +7,7 @@
 #   2. Railpack auto-detects Python/UV via pyproject.toml.
 # =============================================================================
 
-.PHONY: setup seed-data dbt-run run-app run-slack-agent test
+.PHONY: setup seed-data dbt-run run-app run-slack-agent test lint format
 
 setup:
 	uv sync --extra dev
@@ -26,5 +26,12 @@ run-app:
 run-slack-agent:
 	uv run slack-agent
 
-test:
+lint:
+	uv run ruff check
+	uv run ruff format --check
+
+format:
+	uv run ruff format
+
+test: lint
 	uv run python -m pytest

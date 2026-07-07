@@ -4,8 +4,9 @@ import logging
 import os
 import re
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
+from slack_bolt.async_app import AsyncApp
 from slack_sdk.errors import SlackApiError
 
 from tracey.agent.deps import TraceyDeps
@@ -44,9 +45,7 @@ _GITHUB_REPO = os.environ.get("GITHUB_REPO", "")
 _SLACK_USER_TOKEN = os.environ.get("SLACK_USER_TOKEN", "")
 
 _TARGET_CHANNEL_IDS: frozenset[str] = frozenset(
-    cid.strip()
-    for cid in os.environ.get("SLACK_TARGET_CHANNEL_IDS", "").split(",")
-    if cid.strip()
+    cid.strip() for cid in os.environ.get("SLACK_TARGET_CHANNEL_IDS", "").split(",") if cid.strip()
 )
 
 _MAX_CACHE_SIZE = 100
@@ -56,7 +55,7 @@ PROCESSED_MESSAGES: set[tuple[str, str]] = set()
 _ANALYSIS_CACHE: dict[tuple[str, str], dict] = {}
 
 
-def register_handlers(bolt_app) -> None:
+def register_handlers(bolt_app: AsyncApp) -> None:
     """Register all message and action handlers on the Bolt app instance."""
     bolt_app.message(re.compile(r".*"))(handle_message)
     bolt_app.action("start_cross_team_review")(handle_start_cross_team_review)
@@ -182,7 +181,9 @@ async def _run_analysis(
     futures: dict[str, asyncio.Future] = {
         "lineage": asyncio.to_thread(get_lineage, model, _MANIFEST_PATH),
         "migration_order": asyncio.to_thread(
-            get_migration_order, model, _MANIFEST_PATH,
+            get_migration_order,
+            model,
+            _MANIFEST_PATH,
         ),
         "usage": asyncio.to_thread(get_usage, model, _DUCKDB_PATH),
         "last_change": asyncio.to_thread(get_last_change, model, _DUCKDB_PATH),
@@ -203,9 +204,10 @@ async def _run_analysis(
     )
 
     results = await asyncio.gather(
-        *futures.values(), return_exceptions=True,
+        *futures.values(),
+        return_exceptions=True,
     )
-    analysis: dict = dict(zip(futures.keys(), results))
+    analysis: dict = dict(zip(futures.keys(), results, strict=True))
 
     last_change = analysis.get("last_change", {})
 
@@ -257,9 +259,7 @@ def _detect_stale_threads(
         return []
 
     try:
-        threshold = datetime.fromisoformat(last_change_ts).replace(
-            tzinfo=timezone.utc
-        )
+        threshold = datetime.fromisoformat(last_change_ts).replace(tzinfo=UTC)
     except (ValueError, TypeError):
         logger.warning("Invalid last_change_ts: %s", last_change_ts)
         return []
@@ -281,11 +281,13 @@ def _detect_stale_threads(
 
         if thread_dt < threshold and channel_id not in seen_channels:
             seen_channels.add(channel_id)
-            stale.append({
-                "ts": thread_ts,
-                "channel": channel_id,
-                "permalink": match.get("permalink", ""),
-            })
+            stale.append(
+                {
+                    "ts": thread_ts,
+                    "channel": channel_id,
+                    "permalink": match.get("permalink", ""),
+                }
+            )
 
     return stale
 
@@ -304,7 +306,7 @@ def _rank_experts(rts_results: list[dict]) -> list[str]:
 
 def _ts_to_datetime(ts: str) -> datetime:
     """Convert a Slack timestamp (e.g. '1687531200.123456') to datetime."""
-    return datetime.fromtimestamp(float(ts), tz=timezone.utc)
+    return datetime.fromtimestamp(float(ts), tz=UTC)
 
 
 # ---- Lazy analysis helper for action handlers ----
@@ -476,13 +478,9 @@ async def handle_mark_as_outdated(ack, body, client):
         stale_threads = analysis.get("stale_threads", [])
         last_change = analysis.get("last_change", {})
         last_change_data = last_change.get("last_change", {}) or {}
-        last_change_date = last_change_data.get(
-            "changed_at", "unknown date"
-        )
+        last_change_date = last_change_data.get("changed_at", "unknown date")
 
-        current_permalink = await _get_message_permalink(
-            client, channel_id, message_ts
-        )
+        current_permalink = await _get_message_permalink(client, channel_id, message_ts)
 
         count = 0
         for thread in stale_threads:
@@ -539,13 +537,15 @@ async def handle_annotate_pr(ack, body, client):
             impact_summary = build_markdown_summary(analysis)
 
         view = build_pr_modal(model)
-        view["private_metadata"] = json.dumps({
-            "model_name": model,
-            "impact_summary": impact_summary,
-            "repo": _GITHUB_REPO,
-            "channel_id": channel_id,
-            "message_ts": message_ts,
-        })
+        view["private_metadata"] = json.dumps(
+            {
+                "model_name": model,
+                "impact_summary": impact_summary,
+                "repo": _GITHUB_REPO,
+                "channel_id": channel_id,
+                "message_ts": message_ts,
+            }
+        )
 
         await client.views_open(
             trigger_id=body["trigger_id"],
@@ -575,31 +575,25 @@ async def handle_annotate_pr_submission(ack, body, client, view):
 
     state = view.get("state", {}).get("values", {})
 
-    pr_id = state.get("pr_number_block", {}).get(
-        "pr_number_input", {}
-    ).get("value", "").strip()
+    pr_id = state.get("pr_number_block", {}).get("pr_number_input", {}).get("value", "").strip()
 
     if not pr_id:
-        await ack({
-            "response_action": "errors",
-            "errors": {
-                "pr_number_block": "PR number is required.",
-            },
-        })
+        await ack(
+            {
+                "response_action": "errors",
+                "errors": {
+                    "pr_number_block": "PR number is required.",
+                },
+            }
+        )
         return
 
-    custom_notes = state.get("custom_summary_block", {}).get(
-        "custom_summary_input", {}
-    ).get("value", "").strip()
+    custom_notes = state.get("custom_summary_block", {}).get("custom_summary_input", {}).get("value", "").strip()
 
     include_full = False
     checkbox_block = state.get("include_summary_block", {})
-    selected = checkbox_block.get("include_summary_checkbox", {}).get(
-        "selected_options", []
-    )
-    include_full = any(
-        opt.get("value") == "include_full_summary" for opt in selected
-    )
+    selected = checkbox_block.get("include_summary_checkbox", {}).get("selected_options", [])
+    include_full = any(opt.get("value") == "include_full_summary" for opt in selected)
 
     await ack()
 
@@ -628,7 +622,9 @@ async def handle_annotate_pr_submission(ack, body, client, view):
 
         pr_url = result.get("pr_url")
         confirm_blocks = build_pr_confirmation_blocks(
-            pr_id, pr_url, model_name,
+            pr_id,
+            pr_url,
+            model_name,
         )
         await client.chat_postMessage(
             channel=channel_id,
@@ -680,9 +676,7 @@ async def _send_error(client, body: dict) -> None:
         logger.exception("Failed to send error message to user")
 
 
-async def _get_message_permalink(
-    client, channel_id: str, message_ts: str
-) -> str | None:
+async def _get_message_permalink(client, channel_id: str, message_ts: str) -> str | None:
     """Resolve a message permalink via chat.getPermalink."""
     try:
         response = await client.chat_getPermalink(

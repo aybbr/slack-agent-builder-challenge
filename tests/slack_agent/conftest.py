@@ -1,5 +1,4 @@
 import json
-import os
 from unittest.mock import AsyncMock
 
 import pytest
@@ -11,25 +10,39 @@ import tracey.slack_agent.handlers as handlers_module
 def _clean_env(monkeypatch):
     """Ensure tests run with predictable environment variables."""
     monkeypatch.setattr(
-        handlers_module, "_MANIFEST_PATH", "/tmp/test_manifest.json",
+        handlers_module,
+        "_MANIFEST_PATH",
+        "/tmp/test_manifest.json",
     )
     monkeypatch.setattr(
-        handlers_module, "_DUCKDB_PATH", "/tmp/test.duckdb",
+        handlers_module,
+        "_DUCKDB_PATH",
+        "/tmp/test.duckdb",
     )
     monkeypatch.setattr(
-        handlers_module, "_DBT_PROJECT_DIR", "/tmp/test_compiled",
+        handlers_module,
+        "_DBT_PROJECT_DIR",
+        "/tmp/test_compiled",
     )
     monkeypatch.setattr(
-        handlers_module, "_GITHUB_TOKEN", "ghp_test_token",
+        handlers_module,
+        "_GITHUB_TOKEN",
+        "ghp_test_token",
     )
     monkeypatch.setattr(
-        handlers_module, "_GITHUB_REPO", "test-org/test-repo",
+        handlers_module,
+        "_GITHUB_REPO",
+        "test-org/test-repo",
     )
     monkeypatch.setattr(
-        handlers_module, "_SLACK_USER_TOKEN", "xoxp-test-user-token",
+        handlers_module,
+        "_SLACK_USER_TOKEN",
+        "xoxp-test-user-token",
     )
     monkeypatch.setattr(
-        handlers_module, "_TARGET_CHANNEL_IDS", frozenset(),
+        handlers_module,
+        "_TARGET_CHANNEL_IDS",
+        frozenset(),
     )
     handlers_module.PROCESSED_MESSAGES.clear()
     handlers_module._ANALYSIS_CACHE.clear()
