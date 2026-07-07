@@ -38,18 +38,14 @@ class TestBuildChecklistBlocks:
         tests = sample_analysis["tests"]["tests"]
         ref_tests = sample_analysis["tests"]["referential_tests"]
 
-        blocks = build_checklist_blocks(
-            migration, tests, ref_tests, "fct_sales_pipeline"
-        )
+        blocks = build_checklist_blocks(migration, tests, ref_tests, "fct_sales_pipeline")
         assert isinstance(blocks, list)
         assert len(blocks) > 0
         assert blocks[0]["type"] == "header"
 
     def itShould_handle_empty_migration_order(self, sample_analysis):
         blocks = build_checklist_blocks([], [], [], "fct_sales_pipeline")
-        assert any(
-            "No downstream models" in str(b) for b in blocks
-        )
+        assert any("No downstream models" in str(b) for b in blocks)
 
 
 class TestBuildStaleThreadBlock:
@@ -87,17 +83,11 @@ class TestBuildPrModal:
 
 class TestBuildPrConfirmationBlocks:
     def itShould_include_pr_link_when_url_provided(self):
-        blocks = build_pr_confirmation_blocks(
-            "42", "https://github.com/o/r/pull/42", "fct_sales_pipeline"
-        )
-        assert any(
-            "https://github.com" in str(b) for b in blocks
-        )
+        blocks = build_pr_confirmation_blocks("42", "https://github.com/o/r/pull/42", "fct_sales_pipeline")
+        assert any("https://github.com" in str(b) for b in blocks)
 
     def itShould_handle_missing_pr_url(self):
-        blocks = build_pr_confirmation_blocks(
-            "42", None, "fct_sales_pipeline"
-        )
+        blocks = build_pr_confirmation_blocks("42", None, "fct_sales_pipeline")
         assert isinstance(blocks, list)
         assert len(blocks) >= 1
 

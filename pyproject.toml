@@ -9,13 +9,14 @@ authors = [
 requires-python = ">=3.12"
 dependencies = [
     "aiohttp==3.14.1",
-    "slack-bolt==1.28.0",
+    "slack-bolt==1.29.0",
     "fastmcp==3.4.2",
     "duckdb==1.5.4",
     "pygithub>=2.9.1",
     "python-dotenv>=1.2.2",
     "sqlglot>=30.0.0",
     "dbt-duckdb==1.10.1",
+    "claude-agent-sdk==0.2.110",
 ]
 
 [project.optional-dependencies]
@@ -28,10 +29,43 @@ dev = [
 tracey = "tracey.app:main"
 slack-agent = "tracey.slack_agent.app:main"
 
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = [
+    "E",
+    "F",
+    "I",
+    "B",
+    "C4",
+    "SIM",
+    "UP",
+]
+ignore = [
+    "E501",
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["tracey"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_functions = ["itShould_", "itShouldnt_", "test_"]
+log_file = "logs/pytest.log"
+log_file_level = "DEBUG"
+log_format = "%(asctime)s %(levelname)s %(message)s"
 
 [build-system]
 requires = ["uv_build>=0.9.18,<0.10.0"]
 build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "ruff",
+]

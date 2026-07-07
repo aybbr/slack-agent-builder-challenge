@@ -1,0 +1,61 @@
+{
+  "display_information": {
+    "name": "Tracey",
+    "description": "Cross-domain data change intelligence agent for dbt models",
+    "background_color": "#1e293b"
+  },
+  "features": {
+    "bot_user": {
+      "display_name": "Tracey",
+      "always_online": true
+    },
+    "agent_view": {}
+  },
+  "oauth_config": {
+    "redirect_urls": [
+      "https://slackbot-mcp-example.vercel.app/slack/oauth_redirect"
+    ],
+    "scopes": {
+      "bot": [
+        "chat:write",
+        "channels:history",
+        "channels:manage",
+        "groups:history",
+        "im:history",
+        "mpim:history",
+        "pins:write",
+        "reactions:write",
+        "users:read",
+        "users:read.email",
+        "assistant:write",
+        "mcp:connect"
+      ],
+      "user": [
+        "search:read.public",
+        "search:read.users",
+        "search:read.private",
+        "search:read.mpim",
+        "search:read.im",
+        "channels:history",
+        "groups:history",
+        "im:history",
+        "mpim:history",
+        "chat:write"
+      ]
+    }
+  },
+  "settings": {
+    "event_subscriptions": {
+      "request_url": "https://your-domain.railway.app/slack/events",
+      "bot_events": [
+        "message.channels"
+      ]
+    },
+    "interactivity": {
+      "is_enabled": true,
+      "request_url": "https://your-domain.railway.app/slack/interactivity"
+    },
+    "org_deploy_enabled": true,
+    "socket_mode_enabled": false
+  }
+}

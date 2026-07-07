@@ -40,15 +40,10 @@ def get_usage(asset_id: str, db_path: str) -> dict:
                 [asset_id],
             ).fetchall()
     except duckdb.Error as exc:
-        logger.error(
-            "DuckDB error querying usage_stats for %s: %s", asset_id, exc
-        )
+        logger.error("DuckDB error querying usage_stats for %s: %s", asset_id, exc)
         return error_response(asset_id, f"Database error: {exc}")
 
-    by_domain = [
-        {"domain": row[0], "queries": row[1], "dashboards": row[2]}
-        for row in rows
-    ]
+    by_domain = [{"domain": row[0], "queries": row[1], "dashboards": row[2]} for row in rows]
 
     total_queries = sum(d["queries"] for d in by_domain)
     total_dashboards = sum(d["dashboards"] for d in by_domain)

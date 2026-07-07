@@ -5,9 +5,7 @@ from github import Github, GithubException
 logger = logging.getLogger(__name__)
 
 
-def annotate_pr(
-    pr_id: str, summary: str, repo_name: str, token: str
-) -> dict:
+def annotate_pr(pr_id: str, summary: str, repo_name: str, token: str) -> dict:
     """Post a comment on a GitHub pull request.
 
     Uses PyGithub to authenticate with a personal access token and

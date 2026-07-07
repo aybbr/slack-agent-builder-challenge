@@ -25,9 +25,7 @@ class TestAnnotatePr:
         from github import GithubException
 
         mock_gh_instance = MagicMock()
-        mock_gh_instance.get_repo.side_effect = GithubException(
-            404, "Not Found", {}
-        )
+        mock_gh_instance.get_repo.side_effect = GithubException(404, "Not Found", {})
         mock_github.return_value = mock_gh_instance
 
         result = annotate_pr("42", "Test summary", "owner/repo", "fake-token")
@@ -35,8 +33,6 @@ class TestAnnotatePr:
         assert "error" in result
 
     def itShould_return_error_for_invalid_pr_id(self):
-        result = annotate_pr(
-            "not-a-number", "summary", "owner/repo", "token"
-        )
+        result = annotate_pr("not-a-number", "summary", "owner/repo", "token")
         assert "error" in result
         assert "Invalid PR ID" in result["error"]

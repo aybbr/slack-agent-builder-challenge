@@ -65,11 +65,7 @@ def get_tests(asset_id: str, manifest_path: str) -> dict:
 
         attached = node.get("attached_node")
         if attached is not None and attached != unique_id:
-            referential_tests.append(
-                _build_test_entry(
-                    uid, node, owner=_attached_model_name(attached)
-                )
-            )
+            referential_tests.append(_build_test_entry(uid, node, owner=_attached_model_name(attached)))
             continue
 
         tests.append(_build_test_entry(uid, node))
@@ -81,9 +77,7 @@ def get_tests(asset_id: str, manifest_path: str) -> dict:
     }
 
 
-def _build_test_entry(
-    unique_id: str, node: dict, owner: str | None = None
-) -> dict:
+def _build_test_entry(unique_id: str, node: dict, owner: str | None = None) -> dict:
     entry = {
         "name": _resolve_test_name(unique_id, node),
         "column": _resolve_test_column(node),
@@ -154,7 +148,7 @@ def _resolve_test_name(unique_id: str, node: dict) -> str:
         name_part = parts[2]
         last_underscore = name_part.rfind("_")
         if last_underscore > 0:
-            maybe_hash = name_part[last_underscore + 1:]
+            maybe_hash = name_part[last_underscore + 1 :]
             if maybe_hash and all(c in "0123456789abcdef" for c in maybe_hash):
                 return name_part[:last_underscore]
     return unique_id

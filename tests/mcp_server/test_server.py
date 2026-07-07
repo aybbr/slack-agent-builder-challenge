@@ -1,4 +1,4 @@
-import json
+import asyncio
 
 import pytest
 from starlette.testclient import TestClient
@@ -7,15 +7,12 @@ from tests.mcp_server.conftest import server_module
 
 
 class TestToolRegistration:
-    """Verify that all 7 MCP tools are registered correctly."""
+    """Verify that all 4 Tracey-specific MCP tools are registered correctly."""
 
     EXPECTED_TOOLS = {
-        "get_lineage",
         "get_migration_order",
-        "get_column_lineage",
         "get_usage",
         "get_last_change",
-        "get_tests",
         "annotate_pr",
     }
 
@@ -24,22 +21,14 @@ class TestToolRegistration:
         provider = mcp_server._local_provider
         return set(provider._components.keys())
 
-    def itShould_register_seven_tools(self, mcp_server):
+    def itShould_register_four_tools(self, mcp_server):
         provider = mcp_server._local_provider
-        tool_components = {
-            k
-            for k in provider._components
-            if k.startswith("tool:")
-        }
-        assert len(tool_components) == 7
+        tool_components = {k for k in provider._components if k.startswith("tool:")}
+        assert len(tool_components) == 4
 
     def itShould_register_all_expected_tool_names(self, mcp_server):
         provider = mcp_server._local_provider
-        tool_names = {
-            k.split("tool:")[1].split("@")[0]
-            for k in provider._components
-            if k.startswith("tool:")
-        }
+        tool_names = {k.split("tool:")[1].split("@")[0] for k in provider._components if k.startswith("tool:")}
         assert tool_names == self.EXPECTED_TOOLS
 
     def itShould_have_read_only_annotations_on_read_tools(self, mcp_server):
@@ -49,13 +38,9 @@ class TestToolRegistration:
                 continue
             tool_name = key.split("tool:")[1].split("@")[0]
             if tool_name == "annotate_pr":
-                assert tool.annotations.readOnlyHint is False, (
-                    f"{tool_name} should not be read-only"
-                )
+                assert tool.annotations.readOnlyHint is False, f"{tool_name} should not be read-only"
             else:
-                assert tool.annotations.readOnlyHint is True, (
-                    f"{tool_name} should be read-only"
-                )
+                assert tool.annotations.readOnlyHint is True, f"{tool_name} should be read-only"
 
 
 class TestHealthEndpoint:
@@ -121,7 +106,11 @@ class TestSlackSignatureMiddleware:
         async def mock_receive():
             if not received:
                 received.append(True)
-                return {"type": "http.request", "body": b"test body", "more_body": False}
+                return {
+                    "type": "http.request",
+                    "body": b"test body",
+                    "more_body": False,
+                }
             return {"type": "http.disconnect"}
 
         sent = []
@@ -129,7 +118,6 @@ class TestSlackSignatureMiddleware:
         async def mock_send(message):
             sent.append(message)
 
-        import asyncio
         asyncio.run(middleware(scope, mock_receive, mock_send))
 
         body_sent = {}
@@ -137,61 +125,7 @@ class TestSlackSignatureMiddleware:
             if msg.get("type") == "http.response.body":
                 body_sent["body"] = body_sent.get("body", b"") + msg.get("body", b"")
 
-        assert body_sent.get("body") == b"test body", (
-            f"Expected body 'test body', got {body_sent.get('body')}"
-        )
-
-
-class TestGetLineageTool:
-    """Verify the get_lineage tool delegates to lineage_service."""
-
-    def itShould_call_lineage_service(self, mcp_server, mocker):
-        mock_get = mocker.patch.object(
-            server_module, "get_lineage", return_value={"asset_id": "tst"}
-        )
-        tool = _find_tool(mcp_server, "get_lineage")
-        result = tool.fn("fct_sales_pipeline")
-        mock_get.assert_called_once_with("fct_sales_pipeline", "/tmp/test_manifest.json")
-        assert result == {"asset_id": "tst"}
-
-    def itShould_reject_empty_asset_id(self, mcp_server, mocker):
-        mocker.patch.object(server_module, "get_lineage")
-        tool = _find_tool(mcp_server, "get_lineage")
-        result = tool.fn("")
-        assert "error" in result
-        assert "asset_id" in result["error"].lower()
-
-    def itShould_strip_whitespace_from_asset_id(self, mcp_server, mocker):
-        mock_get = mocker.patch.object(
-            server_module, "get_lineage", return_value={"asset_id": "tst"}
-        )
-        tool = _find_tool(mcp_server, "get_lineage")
-        tool.fn("  fct_sales_pipeline  ")
-        mock_get.assert_called_once_with("fct_sales_pipeline", "/tmp/test_manifest.json")
-
-
-class TestColumnLineageTool:
-    """Verify the get_column_lineage tool delegates correctly."""
-
-    def itShould_call_column_lineage_service(self, mcp_server, mocker):
-        mock_get = mocker.patch.object(
-            server_module,
-            "get_column_lineage",
-            return_value={"asset_id": "tst", "column_name": "col", "downstream_usages": []},
-        )
-        tool = _find_tool(mcp_server, "get_column_lineage")
-        result = tool.fn("fct_sales_pipeline", "lead_score")
-        mock_get.assert_called_once_with(
-            "fct_sales_pipeline", "lead_score",
-            "/tmp/test_manifest.json", "/tmp/test_compiled",
-        )
-        assert result["asset_id"] == "tst"
-
-    def itShould_reject_empty_column_name(self, mcp_server, mocker):
-        mocker.patch.object(server_module, "get_column_lineage")
-        tool = _find_tool(mcp_server, "get_column_lineage")
-        result = tool.fn("fct_sales_pipeline", "")
-        assert "error" in result
+        assert body_sent.get("body") == b"test body", f"Expected body 'test body', got {body_sent.get('body')}"
 
 
 class TestAnnotatePRTool:
@@ -206,8 +140,10 @@ class TestAnnotatePRTool:
         tool = _find_tool(mcp_server, "annotate_pr")
         result = tool.fn("42", "## Impact Analysis\n\nTest summary")
         mock_annotate.assert_called_once_with(
-            "42", "## Impact Analysis\n\nTest summary",
-            "test-org/test-repo", "ghp_test_token",
+            "42",
+            "## Impact Analysis\n\nTest summary",
+            "test-org/test-repo",
+            "ghp_test_token",
         )
         assert result["success"] is True
 
@@ -241,9 +177,7 @@ class TestMigrationOrderTool:
         )
         tool = _find_tool(mcp_server, "get_migration_order")
         result = tool.fn("fct_sales_pipeline")
-        mock_order.assert_called_once_with(
-            "fct_sales_pipeline", "/tmp/test_manifest.json"
-        )
+        mock_order.assert_called_once_with("fct_sales_pipeline", "/tmp/test_manifest.json")
         assert result["asset_id"] == "tst"
 
 
@@ -277,24 +211,8 @@ class TestLastChangeTool:
         assert result["asset_id"] == "tst"
 
 
-class TestGetTestsTool:
-    """Verify the get_tests tool delegates correctly."""
-
-    def itShould_call_test_service(self, mcp_server, mocker):
-        mock_tests = mocker.patch.object(
-            server_module,
-            "get_tests",
-            return_value={"asset_id": "tst", "tests": []},
-        )
-        tool = _find_tool(mcp_server, "get_tests")
-        result = tool.fn("fct_sales_pipeline")
-        mock_tests.assert_called_once_with(
-            "fct_sales_pipeline", "/tmp/test_manifest.json"
-        )
-        assert result["asset_id"] == "tst"
-
-
 # --- helpers ---
+
 
 class SimpleASGIApp:
     """A minimal ASGI app that echoes the request body as the response body.
@@ -311,16 +229,20 @@ class SimpleASGIApp:
             body += message.get("body", b"")
             if not message.get("more_body", False):
                 break
-        await send({
-            "type": "http.response.start",
-            "status": 200,
-            "headers": [(b"content-type", b"text/plain")],
-        })
-        await send({
-            "type": "http.response.body",
-            "body": body if body else b"forwarded",
-            "more_body": False,
-        })
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [(b"content-type", b"text/plain")],
+            }
+        )
+        await send(
+            {
+                "type": "http.response.body",
+                "body": body if body else b"forwarded",
+                "more_body": False,
+            }
+        )
 
 
 def _find_tool(mcp_server, tool_name: str):

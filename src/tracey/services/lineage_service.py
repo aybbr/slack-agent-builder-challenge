@@ -1,10 +1,10 @@
 import json
 import logging
+from pathlib import Path
 
 import sqlglot
 import sqlglot.errors
 import sqlglot.expressions as exp
-from pathlib import Path
 
 from tracey.services._manifest_helpers import (
     _get_downstream_models,
@@ -50,10 +50,12 @@ def get_lineage(asset_id: str, manifest_path: str) -> dict:
     upstream = []
     for uid in _get_upstream_models(unique_id, nodes):
         parent = _get_node(uid, nodes)
-        upstream.append({
-            "id": parent.get("name", uid) if parent else uid,
-            "domain": parent.get("meta", {}).get("domain", "unknown") if parent else "unknown",
-        })
+        upstream.append(
+            {
+                "id": parent.get("name", uid) if parent else uid,
+                "domain": parent.get("meta", {}).get("domain", "unknown") if parent else "unknown",
+            }
+        )
 
     downstream = []
     for uid in _get_downstream_models(unique_id, nodes):
@@ -61,11 +63,13 @@ def get_lineage(asset_id: str, manifest_path: str) -> dict:
         if child is None:
             continue
         child_domain = child.get("meta", {}).get("domain", "unknown")
-        downstream.append({
-            "id": child.get("name", uid),
-            "domain": child_domain,
-            "cross_domain": child_domain != asset_domain,
-        })
+        downstream.append(
+            {
+                "id": child.get("name", uid),
+                "domain": child_domain,
+                "cross_domain": child_domain != asset_domain,
+            }
+        )
 
     return {
         "asset_id": asset_id,
@@ -116,13 +120,15 @@ def get_migration_order(asset_id: str, manifest_path: str) -> dict:
             continue
         order_num += 1
         dom = n.get("meta", {}).get("domain", "unknown")
-        order.append({
-            "id": n.get("name", uid),
-            "domain": dom,
-            "order": order_num,
-            "is_source": uid == unique_id,
-            "cross_domain": dom != asset_domain,
-        })
+        order.append(
+            {
+                "id": n.get("name", uid),
+                "domain": dom,
+                "order": order_num,
+                "is_source": uid == unique_id,
+                "cross_domain": dom != asset_domain,
+            }
+        )
 
     return {
         "asset_id": asset_id,
@@ -187,9 +193,7 @@ def get_column_lineage(
             continue
 
         sql_text = compiled_path.read_text()
-        child_usages = _find_column_usages(
-            sql_text, asset_id, column_name, child_name, warnings
-        )
+        child_usages = _find_column_usages(sql_text, asset_id, column_name, child_name, warnings)
         usages.extend(child_usages)
 
     return {
@@ -236,12 +240,14 @@ def _find_column_usages(
             usage_type = _detect_usage_type(node)
             output_column = _find_output_column(node)
 
-            results.append({
-                "model": downstream_model,
-                "column": output_column if output_column else col_name,
-                "usage_type": usage_type,
-                "confidence": "high" if table_ref else "low",
-            })
+            results.append(
+                {
+                    "model": downstream_model,
+                    "column": output_column if output_column else col_name,
+                    "usage_type": usage_type,
+                    "confidence": "high" if table_ref else "low",
+                }
+            )
 
     return results
 
@@ -268,9 +274,7 @@ def _get_table_ref(node: exp.Column) -> str | None:
     return str(table)
 
 
-def _build_alias_map(
-    parsed_statements: list, upstream_model: str
-) -> set[str]:
+def _build_alias_map(parsed_statements: list, upstream_model: str) -> set[str]:
     """Build a set of known aliases/references for the upstream model.
 
     Walks the AST for ``Table`` nodes whose bare name matches
@@ -317,7 +321,16 @@ def _detect_usage_type(column_node: exp.Column) -> str:
 
         if isinstance(
             parent,
-            (exp.Binary, exp.Add, exp.Sub, exp.Mul, exp.Div, exp.Case, exp.When, exp.If),
+            (
+                exp.Binary,
+                exp.Add,
+                exp.Sub,
+                exp.Mul,
+                exp.Div,
+                exp.Case,
+                exp.When,
+                exp.If,
+            ),
         ):
             return "expression"
 

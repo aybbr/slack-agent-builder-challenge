@@ -65,96 +65,68 @@ class TestGetMigrationOrder:
 
 class TestGetColumnLineage:
     def itShould_detect_expression_usage(self, manifest_path, compiled_dir):
-        result = get_column_lineage(
-            "fct_sales_pipeline", "lead_score", manifest_path, compiled_dir
-        )
+        result = get_column_lineage("fct_sales_pipeline", "lead_score", manifest_path, compiled_dir)
         usages = result.get("downstream_usages", [])
-        revenue_usages = [
-            u for u in usages if u["model"] == "fct_revenue_recognition"
-        ]
+        revenue_usages = [u for u in usages if u["model"] == "fct_revenue_recognition"]
         assert any(u["usage_type"] == "expression" for u in revenue_usages)
 
     def itShould_detect_column_in_downstream(self, manifest_path, compiled_dir):
-        result = get_column_lineage(
-            "fct_sales_pipeline", "lead_score", manifest_path, compiled_dir
-        )
+        result = get_column_lineage("fct_sales_pipeline", "lead_score", manifest_path, compiled_dir)
         usages = result.get("downstream_usages", [])
         model_names = {u["model"] for u in usages}
         assert "fct_revenue_recognition" in model_names
 
     def itShould_return_empty_for_unreferenced_column(self, manifest_path, compiled_dir):
-        result = get_column_lineage(
-            "fct_sales_pipeline", "nonexistent_column", manifest_path, compiled_dir
-        )
+        result = get_column_lineage("fct_sales_pipeline", "nonexistent_column", manifest_path, compiled_dir)
         assert result.get("downstream_usages", []) == []
 
     def itShould_return_error_for_missing_manifest(self, compiled_dir):
-        result = get_column_lineage(
-            "no_such_model", "lead_score", "/nonexistent/path.json", compiled_dir
-        )
+        result = get_column_lineage("no_such_model", "lead_score", "/nonexistent/path.json", compiled_dir)
         assert "error" in result
 
     def itShould_detect_output_column_name(self, manifest_path, compiled_dir):
-        result = get_column_lineage(
-            "fct_sales_pipeline", "lead_score", manifest_path, compiled_dir
-        )
+        result = get_column_lineage("fct_sales_pipeline", "lead_score", manifest_path, compiled_dir)
         usages = result.get("downstream_usages", [])
         output_columns = [u.get("column") for u in usages]
         assert any(c == "lead_score_weighted" for c in output_columns)
 
     def itShould_include_warnings_field(self, manifest_path, compiled_dir):
-        result = get_column_lineage(
-            "fct_sales_pipeline", "lead_score", manifest_path, compiled_dir
-        )
+        result = get_column_lineage("fct_sales_pipeline", "lead_score", manifest_path, compiled_dir)
         assert "warnings" in result
 
 
 class TestAliasDetection:
     """Verify _build_alias_map handles schema-qualified table refs."""
 
-    def itShould_match_schema_qualified_table_with_alias(
-        self, manifest_path, compiled_dir, tmp_path
-    ):
+    def itShould_match_schema_qualified_table_with_alias(self, manifest_path, compiled_dir, tmp_path):
         models_dir = tmp_path / "models" / "marts"
         models_dir.mkdir(parents=True, exist_ok=True)
         (models_dir / "rpt_commissions.sql").write_text(
-            'SELECT sp.lead_score, sp.amount, rr.lead_score_weighted, '
-            'CASE WHEN rr.lead_score_weighted > 10 THEN sp.amount * 0.10 '
-            'ELSE sp.amount * 0.05 END AS commission '
+            "SELECT sp.lead_score, sp.amount, rr.lead_score_weighted, "
+            "CASE WHEN rr.lead_score_weighted > 10 THEN sp.amount * 0.10 "
+            "ELSE sp.amount * 0.05 END AS commission "
             'FROM "demo"."main_main"."fct_sales_pipeline" sp '
             'LEFT JOIN "demo"."main_main"."fct_revenue_recognition" rr '
-            'ON sp.opportunity_id = rr.opportunity_id '
-            'WHERE rr.lead_score_weighted IS NOT NULL\n'
+            "ON sp.opportunity_id = rr.opportunity_id "
+            "WHERE rr.lead_score_weighted IS NOT NULL\n"
         )
-        result = get_column_lineage(
-            "fct_sales_pipeline", "lead_score", manifest_path, str(tmp_path)
-        )
+        result = get_column_lineage("fct_sales_pipeline", "lead_score", manifest_path, str(tmp_path))
         usages = result.get("downstream_usages", [])
         rpt_usages = [u for u in usages if u["model"] == "rpt_commissions"]
-        qualified = [u for u in rpt_usages
-                     if u["confidence"] == "high" and u["usage_type"] == "select"]
+        qualified = [u for u in rpt_usages if u["confidence"] == "high" and u["usage_type"] == "select"]
         assert len(qualified) >= 1, (
             f"Expected high-confidence select usage for lead_score in rpt_commissions "
             f"with schema-qualified FROM clause, got {rpt_usages}"
         )
 
-    def itShould_flag_unqualified_column_as_low_confidence(
-        self, manifest_path, compiled_dir, tmp_path
-    ):
+    def itShould_flag_unqualified_column_as_low_confidence(self, manifest_path, compiled_dir, tmp_path):
         models_dir = tmp_path / "models" / "marts"
         models_dir.mkdir(parents=True, exist_ok=True)
         (models_dir / "rpt_commissions.sql").write_text(
-            'SELECT lead_score, sp.amount, '
-            'lead_score * 0.05 AS commission '
-            'FROM fct_sales_pipeline sp\n'
+            "SELECT lead_score, sp.amount, lead_score * 0.05 AS commission FROM fct_sales_pipeline sp\n"
         )
-        result = get_column_lineage(
-            "fct_sales_pipeline", "lead_score", manifest_path, str(tmp_path)
-        )
+        result = get_column_lineage("fct_sales_pipeline", "lead_score", manifest_path, str(tmp_path))
         usages = result.get("downstream_usages", [])
         rpt_usages = [u for u in usages if u["model"] == "rpt_commissions"]
-        unqualified = [u for u in rpt_usages
-                       if u["column"] == "lead_score" and u["confidence"] == "low"]
-        assert len(unqualified) >= 1, (
-            f"Expected low-confidence match for unqualified lead_score, got {rpt_usages}"
-        )
+        unqualified = [u for u in rpt_usages if u["column"] == "lead_score" and u["confidence"] == "low"]
+        assert len(unqualified) >= 1, f"Expected low-confidence match for unqualified lead_score, got {rpt_usages}"

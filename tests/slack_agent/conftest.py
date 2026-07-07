@@ -1,4 +1,4 @@
-import os
+import json
 from unittest.mock import AsyncMock
 
 import pytest
@@ -10,25 +10,39 @@ import tracey.slack_agent.handlers as handlers_module
 def _clean_env(monkeypatch):
     """Ensure tests run with predictable environment variables."""
     monkeypatch.setattr(
-        handlers_module, "_MANIFEST_PATH", "/tmp/test_manifest.json",
+        handlers_module,
+        "_MANIFEST_PATH",
+        "/tmp/test_manifest.json",
     )
     monkeypatch.setattr(
-        handlers_module, "_DUCKDB_PATH", "/tmp/test.duckdb",
+        handlers_module,
+        "_DUCKDB_PATH",
+        "/tmp/test.duckdb",
     )
     monkeypatch.setattr(
-        handlers_module, "_DBT_PROJECT_DIR", "/tmp/test_compiled",
+        handlers_module,
+        "_DBT_PROJECT_DIR",
+        "/tmp/test_compiled",
     )
     monkeypatch.setattr(
-        handlers_module, "_GITHUB_TOKEN", "ghp_test_token",
+        handlers_module,
+        "_GITHUB_TOKEN",
+        "ghp_test_token",
     )
     monkeypatch.setattr(
-        handlers_module, "_GITHUB_REPO", "test-org/test-repo",
+        handlers_module,
+        "_GITHUB_REPO",
+        "test-org/test-repo",
     )
     monkeypatch.setattr(
-        handlers_module, "_SLACK_USER_TOKEN", "xoxp-test-user-token",
+        handlers_module,
+        "_SLACK_USER_TOKEN",
+        "xoxp-test-user-token",
     )
     monkeypatch.setattr(
-        handlers_module, "_TARGET_CHANNEL_IDS", frozenset(),
+        handlers_module,
+        "_TARGET_CHANNEL_IDS",
+        frozenset(),
     )
     handlers_module.PROCESSED_MESSAGES.clear()
     handlers_module._ANALYSIS_CACHE.clear()
@@ -47,6 +61,42 @@ def mock_slack_client():
     client.pins_add = AsyncMock()
     client.views_open = AsyncMock()
     return client
+
+
+@pytest.fixture
+def manifest_path(tmp_path):
+    """Create a minimal dbt manifest JSON for prefilter tests."""
+    manifest = {
+        "nodes": {
+            "model.tracey_demo.stg_salesforce__opportunity": {
+                "name": "stg_salesforce__opportunity",
+                "resource_type": "model",
+            },
+            "model.tracey_demo.stg_finance__revenue": {
+                "name": "stg_finance__revenue",
+                "resource_type": "model",
+            },
+            "model.tracey_demo.fct_sales_pipeline": {
+                "name": "fct_sales_pipeline",
+                "resource_type": "model",
+            },
+            "model.tracey_demo.fct_revenue_recognition": {
+                "name": "fct_revenue_recognition",
+                "resource_type": "model",
+            },
+            "model.tracey_demo.rpt_commissions": {
+                "name": "rpt_commissions",
+                "resource_type": "model",
+            },
+            "test.tracey_demo.not_null_test": {
+                "name": "not_null_test",
+                "resource_type": "test",
+            },
+        }
+    }
+    path = tmp_path / "manifest.json"
+    path.write_text(json.dumps(manifest))
+    return str(path)
 
 
 @pytest.fixture
