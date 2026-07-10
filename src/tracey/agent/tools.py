@@ -7,10 +7,12 @@ Claude Agent SDK tool result protocol.
 Context-aware tools retrieve ``TraceyDeps`` from ``tracey_deps_var`` at runtime.
 """
 
+import base64
 import json
 import logging
 import os
 
+import aiohttp
 from claude_agent_sdk import tool
 from mcp.types import ToolAnnotations
 from slack_sdk.errors import SlackApiError
@@ -26,6 +28,8 @@ _MANIFEST_PATH = os.environ.get("MANIFEST_PATH", "dbt_project/target/manifest.js
 _DUCKDB_PATH = os.environ.get("DUCKDB_PATH", "data/demo.duckdb")
 _GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
 _GITHUB_REPO = os.environ.get("GITHUB_REPO", "")
+
+_MERMAID_INK_BASE = "https://mermaid.ink/img"
 
 
 # ---------------------------------------------------------------------------
@@ -269,3 +273,115 @@ async def add_reaction_tool(args: dict) -> dict:
                 }
             ]
         }
+
+
+# ---------------------------------------------------------------------------
+# Tool: render_diagram_to_slack
+# ---------------------------------------------------------------------------
+
+
+@tool(
+    name="render_diagram_to_slack",
+    description=(
+        "Render a Mermaid diagram as a PNG and post it as a card in the "
+        "current Slack thread. You must provide the raw Mermaid syntax "
+        "(e.g. 'flowchart TD\\n    A --> B') which you compose based on "
+        "lineage data from dbt MCP. Call `validate_and_render_mermaid_diagram` "
+        "(Mermaid MCP) BEFORE calling this tool to validate your syntax and "
+        "obtain a playground link. The diagram card is posted automatically; "
+        "reference it in your text response."
+    ),
+    input_schema={
+        "type": "object",
+        "properties": {
+            "mermaid_syntax": {
+                "type": "string",
+                "description": "Raw Mermaid diagram syntax (e.g. 'flowchart TD\\n    A --> B')",
+            },
+            "title": {
+                "type": "string",
+                "description": "Card title for the diagram in Slack (e.g. 'Impact Lineage')",
+            },
+            "subtitle": {
+                "type": "string",
+                "description": (
+                    "Optional mrkdwn subtitle for the card (e.g. '*fct_sales* → 3 downstream, 1 cross-domain')"
+                ),
+            },
+            "playground_url": {
+                "type": "string",
+                "description": (
+                    "Mermaid Chart playground link from "
+                    "`validate_and_render_mermaid_diagram`.  Must be obtained "
+                    "BEFORE calling this tool."
+                ),
+            },
+        },
+        "required": ["mermaid_syntax", "title"],
+    },
+    annotations=ToolAnnotations(readOnlyHint=True),
+)
+async def render_diagram_to_slack_tool(args: dict) -> dict:
+    """Render an agent-generated Mermaid diagram and post it as a Slack card."""
+    from tracey.agent.context import tracey_deps_var
+
+    mermaid_syntax = args["mermaid_syntax"].strip()
+    title = args["title"].strip()
+    playground_url = args.get("playground_url", "").strip()
+
+    if not mermaid_syntax:
+        return _json_result(None, error="mermaid_syntax is required")
+    if not title:
+        return _json_result(None, error="title is required")
+
+    deps = tracey_deps_var.get()
+    if deps is None:
+        return _json_result(None, error="Slack client not available")
+
+    encoded = base64.urlsafe_b64encode(mermaid_syntax.encode()).decode().rstrip("=")
+    mermaid_url = f"{_MERMAID_INK_BASE}/{encoded}"
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            resp = await session.get(mermaid_url)
+            try:
+                if resp.status != 200:
+                    return _json_result(
+                        {"mermaid_syntax": mermaid_syntax},
+                        error=f"mermaid.ink returned HTTP {resp.status}",
+                    )
+                image_bytes = await resp.read()
+            finally:
+                resp.close()
+    except aiohttp.ClientError as exc:
+        logger.warning("mermaid.ink request failed: %s", exc)
+        return _json_result(
+            {"mermaid_syntax": mermaid_syntax},
+            error=f"Failed to render diagram: {exc}",
+        )
+
+    filename = f"diagram_{deps.message_ts}.png"
+    try:
+        upload_result = await deps.client.files_upload_v2(
+            channel=deps.channel_id,
+            thread_ts=deps.thread_ts,
+            file=image_bytes,
+            filename=filename,
+            title=title,
+        )
+    except SlackApiError as exc:
+        logger.warning("Slack file upload failed: %s", exc)
+        return _json_result(
+            {"mermaid_syntax": mermaid_syntax},
+            error=f"Failed to upload diagram to Slack: {exc}",
+        )
+
+    files = upload_result.get("files", [])
+    file_url = files[0].get("permalink", "") if files else ""
+
+    return _json_result(
+        {
+            "diagram_url": file_url or mermaid_url,
+            "playground_url": playground_url or None,
+        }
+    )

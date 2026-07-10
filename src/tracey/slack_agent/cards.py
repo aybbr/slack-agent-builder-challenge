@@ -456,6 +456,478 @@ def build_markdown_summary(analysis: dict) -> str:
     return "\n".join(lines)
 
 
+def build_diagram_card(
+    diagram_url: str,
+    title: str,
+    subtitle: str = "",
+    playground_url: str | None = None,
+) -> list[dict]:
+    """Build a Slack ``card`` block with a hero image showing a rendered diagram.
+
+    Args:
+        diagram_url: Publicly-accessible URL of the rendered diagram image.
+        title: Card title (e.g. ``"Impact Lineage"``).
+        subtitle: Optional mrkdwn subtitle.
+        playground_url: Optional Mermaid Chart link for interactive editing.
+
+    Returns:
+        A list containing a single card block dict.
+    """
+    card: dict = {
+        "type": "card",
+        "hero_image": {
+            "type": "image",
+            "image_url": diagram_url,
+            "alt_text": title,
+        },
+        "title": {
+            "type": "mrkdwn",
+            "text": title,
+            "verbatim": True,
+        },
+    }
+
+    if subtitle:
+        card["subtitle"] = {
+            "type": "mrkdwn",
+            "text": subtitle,
+            "verbatim": False,
+        }
+
+    if playground_url:
+        card["actions"] = [
+            {
+                "type": "button",
+                "text": {"type": "plain_text", "text": "Open in Mermaid Chart", "emoji": True},
+                "url": playground_url,
+            },
+        ]
+
+    return [card]
+
+
+def build_diagram_image(
+    diagram_url: str,
+    title: str,
+    playground_url: str | None = None,
+) -> list[dict]:
+    """Build a full-width image block for a rendered diagram with optional link.
+
+    Returns an ``image`` block (renders at full message width) followed
+    by an optional context block with a playground link.
+    """
+    blocks: list[dict] = [
+        {
+            "type": "image",
+            "title": {"type": "plain_text", "text": title, "emoji": True},
+            "image_url": diagram_url,
+            "alt_text": title,
+        },
+    ]
+
+    if playground_url:
+        blocks.append(
+            {
+                "type": "context",
+                "elements": [
+                    {
+                        "type": "mrkdwn",
+                        "text": f"<{playground_url}|Open in Mermaid Chart>",
+                    },
+                ],
+            }
+        )
+
+    return blocks
+
+
+def build_impact_header(
+    model_name: str,
+    downstream_count: int,
+    cross_domain_count: int,
+    domain: str = "",
+) -> list[dict]:
+    """Build a header and context block summarising impact scope."""
+    stats: list[str] = []
+    if downstream_count:
+        stats.append(f"{downstream_count} downstream")
+    if cross_domain_count:
+        stats.append(f"{cross_domain_count} cross-domain :warning:")
+    if domain:
+        stats.insert(0, f"Domain: *{domain}*")
+
+    return [
+        {
+            "type": "header",
+            "text": {
+                "type": "plain_text",
+                "text": f"Impact Analysis: {model_name}",
+                "emoji": True,
+            },
+        },
+        {
+            "type": "context",
+            "elements": [
+                {
+                    "type": "mrkdwn",
+                    "text": " · ".join(stats),
+                },
+            ],
+        },
+    ]
+
+
+def build_downstream_section(downstream: list[dict]) -> list[dict] | None:
+    """Build section blocks listing downstream models with domain tags."""
+    if not downstream:
+        return None
+
+    lines: list[str] = []
+    for d in downstream:
+        dom = d.get("domain", "?")
+        cross = " :warning: cross-domain" if d.get("cross_domain") else ""
+        lines.append(f"• `{d['id']}` ({dom}){cross}")
+
+    return [
+        {
+            "type": "section",
+            "text": {"type": "mrkdwn", "text": "*Downstream Models*\n" + "\n".join(lines)},
+        },
+    ]
+
+
+def build_usage_section(usage: dict) -> list[dict] | None:
+    """Build section blocks with per-domain usage statistics."""
+    by_domain = usage.get("by_domain", [])
+    total_queries = usage.get("total_queries", 0)
+    total_dashboards = usage.get("total_dashboards", 0)
+
+    if not total_queries and not total_dashboards:
+        return None
+
+    lines = [f"*Total:* {total_queries} queries/wk, {total_dashboards} dashboards"]
+    for entry in by_domain:
+        lines.append(f"• *{entry['domain']}:* {entry['queries']} queries, {entry['dashboards']} dashboards")
+
+    return [
+        {
+            "type": "section",
+            "text": {"type": "mrkdwn", "text": "\n".join(lines)},
+        },
+    ]
+
+
+def build_migration_preview_section(migration_order: dict) -> list[dict] | None:
+    """Build a section previewing the first few migration steps."""
+    steps = migration_order.get("migration_order", [])
+    if not steps:
+        return None
+
+    preview = steps[:5]
+    lines = ["*Migration Order (first 5):*"]
+    for step in preview:
+        order = step.get("order", "?")
+        step_id = step.get("id", "?")
+        cross = " :arrow_right: *cross-domain*" if step.get("cross_domain") else ""
+        lines.append(f"  {order}. `{step_id}`{cross}")
+
+    if len(steps) > 5:
+        lines.append(f"  _... and {len(steps) - 5} more_")
+
+    return [
+        {
+            "type": "section",
+            "text": {"type": "mrkdwn", "text": "\n".join(lines)},
+        },
+    ]
+
+
+def build_social_section(
+    experts: list[str],
+    stale_threads: list[dict],
+) -> list[dict] | None:
+    """Build section blocks with social impact summary."""
+    if not experts and not stale_threads:
+        return None
+
+    lines: list[str] = []
+    if experts:
+        mentions = ", ".join(f"<@{expert}>" for expert in experts[:3])
+        lines.append(f"*Suggested experts:* {mentions}")
+    if stale_threads:
+        lines.append(f"*Past discussions:* {len(stale_threads)} found (may be outdated)")
+
+    return [
+        {
+            "type": "section",
+            "text": {"type": "mrkdwn", "text": "\n".join(lines)},
+        },
+    ]
+
+
+def build_feedback_blocks() -> list[dict]:
+    """Build feedback buttons and disclaimer blocks."""
+    return [
+        {
+            "type": "context_actions",
+            "elements": [
+                {
+                    "type": "feedback_buttons",
+                    "action_id": "tracey_feedback",
+                    "positive_button": {
+                        "text": {"type": "plain_text", "text": "👍"},
+                        "value": "positive_feedback",
+                    },
+                    "negative_button": {
+                        "text": {"type": "plain_text", "text": "👎"},
+                        "value": "negative_feedback",
+                    },
+                },
+            ],
+        },
+        {
+            "type": "context",
+            "elements": [
+                {
+                    "type": "mrkdwn",
+                    "text": ":information_source: AI-generated analysis. Verify before acting.",
+                },
+            ],
+        },
+    ]
+
+
+def build_review_modal(
+    model_name: str,
+    experts: list[str],
+    channel_id: str,
+    message_ts: str,
+) -> dict:
+    """Build a modal for configuring the cross-team review before creation."""
+    initial_users = experts[:10] if experts else []
+
+    blocks: list[dict] = [
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": f"Set up a cross-team review channel for `{model_name}`.",
+            },
+        },
+        {
+            "type": "input",
+            "block_id": "experts_block",
+            "label": {"type": "plain_text", "text": "Experts to invite", "emoji": True},
+            "element": {
+                "type": "multi_users_select",
+                "action_id": "experts_select",
+                "placeholder": {
+                    "type": "plain_text",
+                    "text": "Select team members",
+                    "emoji": True,
+                },
+                "initial_users": initial_users,
+            },
+        },
+        {
+            "type": "input",
+            "block_id": "notes_block",
+            "optional": True,
+            "label": {"type": "plain_text", "text": "Notes (optional)", "emoji": True},
+            "element": {
+                "type": "plain_text_input",
+                "action_id": "notes_input",
+                "multiline": True,
+                "placeholder": {
+                    "type": "plain_text",
+                    "text": "Add context for the review team...",
+                    "emoji": True,
+                },
+            },
+        },
+    ]
+
+    from datetime import datetime
+
+    suffix = datetime.now().strftime("%y%m%d%H%M")
+    return {
+        "type": "modal",
+        "callback_id": "review_modal",
+        "title": {"type": "plain_text", "text": "Start Review", "emoji": True},
+        "submit": {"type": "plain_text", "text": "Create Channel", "emoji": True},
+        "close": {"type": "plain_text", "text": "Cancel", "emoji": True},
+        "blocks": blocks,
+        "private_metadata": json.dumps(
+            {
+                "model": model_name,
+                "channel_id": channel_id,
+                "message_ts": message_ts,
+                "suggested_name": f"review-{model_name}-{suffix}",
+            }
+        ),
+    }
+
+
+def build_outdated_modal(
+    model_name: str,
+    stale_threads: list[dict],
+    last_change_date: str,
+    channel_id: str,
+    message_ts: str,
+) -> dict:
+    """Build a modal listing stale threads with checkboxes for selection."""
+    if not stale_threads:
+        return {
+            "type": "modal",
+            "callback_id": "outdated_modal",
+            "title": {"type": "plain_text", "text": "No Stale Threads", "emoji": True},
+            "close": {"type": "plain_text", "text": "Close", "emoji": True},
+            "blocks": [
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": ":white_check_mark: No outdated threads detected for `{model_name}`.",
+                    },
+                },
+            ],
+            "private_metadata": "{}",
+        }
+
+    options = []
+    for i, thread in enumerate(stale_threads[:10]):
+        permalink = thread.get("permalink", "")
+        channel = thread.get("channel", "")
+        label = f"#{channel}" if channel else f"Thread {i + 1}"
+        if permalink:
+            label += f" (<{permalink}|view>)"
+        options.append(
+            {
+                "text": {"type": "mrkdwn", "text": label, "verbatim": False},
+                "value": json.dumps({"ts": thread["ts"], "channel": thread["channel"]}),
+            }
+        )
+
+    return {
+        "type": "modal",
+        "callback_id": "outdated_modal",
+        "title": {"type": "plain_text", "text": "Mark as Outdated", "emoji": True},
+        "submit": {"type": "plain_text", "text": "Mark Selected", "emoji": True},
+        "close": {"type": "plain_text", "text": "Cancel", "emoji": True},
+        "blocks": [
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": (
+                        f"Select threads to mark as outdated for `{model_name}`. Last change: *{last_change_date}*"
+                    ),
+                },
+            },
+            {
+                "type": "input",
+                "block_id": "threads_block",
+                "label": {
+                    "type": "plain_text",
+                    "text": f"{len(stale_threads)} stale thread(s) found",
+                    "emoji": True,
+                },
+                "element": {
+                    "type": "checkboxes",
+                    "action_id": "threads_checkbox",
+                    "options": options,
+                    "initial_options": options,
+                },
+            },
+        ],
+        "private_metadata": json.dumps(
+            {
+                "model": model_name,
+                "channel_id": channel_id,
+                "message_ts": message_ts,
+                "last_change_date": last_change_date,
+            }
+        ),
+    }
+
+
+def build_migration_modal(
+    model_name: str,
+    migration_order: list[dict],
+    channel_id: str,
+    message_ts: str,
+) -> dict:
+    """Build a modal for confirming migration plan generation."""
+    options = []
+    for step in migration_order:
+        step_id = step.get("id", "?")
+        step_domain = step.get("domain", "?")
+        is_source = step.get("is_source", False)
+        cross = " ⚠️ cross-domain" if step.get("cross_domain") else ""
+        label = f"`{step_id}` ({step_domain})" + (" — source" if is_source else "") + cross
+        options.append(
+            {
+                "text": {"type": "mrkdwn", "text": label, "verbatim": False},
+                "value": step_id,
+            }
+        )
+
+    return {
+        "type": "modal",
+        "callback_id": "migration_modal",
+        "title": {"type": "plain_text", "text": "Migration Plan", "emoji": True},
+        "submit": {"type": "plain_text", "text": "Generate Plan", "emoji": True},
+        "close": {"type": "plain_text", "text": "Cancel", "emoji": True},
+        "blocks": [
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"Generate a migration checklist for `{model_name}`. Select the steps to include.",
+                },
+            },
+            {
+                "type": "input",
+                "block_id": "steps_block",
+                "label": {
+                    "type": "plain_text",
+                    "text": f"{len(migration_order)} migration step(s)",
+                    "emoji": True,
+                },
+                "element": {
+                    "type": "checkboxes",
+                    "action_id": "steps_checkbox",
+                    "options": options,
+                    "initial_options": options,
+                },
+            },
+            {
+                "type": "input",
+                "block_id": "notes_block",
+                "optional": True,
+                "label": {"type": "plain_text", "text": "Additional notes", "emoji": True},
+                "element": {
+                    "type": "plain_text_input",
+                    "action_id": "notes_input",
+                    "multiline": True,
+                    "placeholder": {
+                        "type": "plain_text",
+                        "text": "Any special instructions for the migration...",
+                        "emoji": True,
+                    },
+                },
+            },
+        ],
+        "private_metadata": json.dumps(
+            {
+                "model": model_name,
+                "channel_id": channel_id,
+                "message_ts": message_ts,
+            }
+        ),
+    }
+
+
 # ---- Private helpers ----
 
 

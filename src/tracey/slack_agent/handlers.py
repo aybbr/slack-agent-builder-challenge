@@ -23,12 +23,20 @@ from tracey.slack_agent.cards import (
     _actions_block,
     build_checklist_blocks,
     build_cross_team_summary_blocks,
-    build_impact_card,
+    build_downstream_section,
+    build_feedback_blocks,
+    build_impact_header,
     build_markdown_summary,
     build_marked_outdated_confirmation,
+    build_migration_modal,
+    build_migration_preview_section,
+    build_outdated_modal,
     build_pr_confirmation_blocks,
     build_pr_modal,
+    build_review_modal,
+    build_social_section,
     build_stale_thread_block,
+    build_usage_section,
 )
 from tracey.slack_agent.prefilter import has_model_mention as _prefilter_check
 from tracey.slack_agent.session_store import SessionStore
@@ -48,6 +56,8 @@ _TARGET_CHANNEL_IDS: frozenset[str] = frozenset(
     cid.strip() for cid in os.environ.get("SLACK_TARGET_CHANNEL_IDS", "").split(",") if cid.strip()
 )
 
+_BOT_USER_ID: str = "A0BF7MKNEN5"
+
 _MAX_CACHE_SIZE = 100
 _MAX_PROCESSED_SIZE = 1000
 
@@ -63,6 +73,9 @@ def register_handlers(bolt_app: AsyncApp) -> None:
     bolt_app.action("mark_as_outdated")(handle_mark_as_outdated)
     bolt_app.action("annotate_pr")(handle_annotate_pr)
     bolt_app.view("annotate_pr_modal")(handle_annotate_pr_submission)
+    bolt_app.view("review_modal")(handle_review_modal_submission)
+    bolt_app.view("outdated_modal")(handle_outdated_modal_submission)
+    bolt_app.view("migration_modal")(handle_migration_modal_submission)
 
 
 # ---- Message handler ----
@@ -81,6 +94,9 @@ async def handle_message(
     Claude-powered agent for intelligent intent detection. The agent owns
     the response — we stream its output and append action button blocks.
     """
+    global _BOT_USER_ID
+    if not _BOT_USER_ID:
+        _BOT_USER_ID = context.get("bot_user_id", "")
     try:
         if event.get("subtype") is not None:
             return
@@ -133,9 +149,11 @@ async def handle_message(
         await set_status(
             status="Analysing impact...",
             loading_messages=[
-                "Tracing model dependencies...",
-                "Checking downstream impacts...",
-                "Gathering usage statistics...",
+                "Following the breadcrumbs...",
+                "Drawing the lineage graph...",
+                "Interrogating source tables (politely)...",
+                "Checking if anyone still uses this...",
+                "Making sure CFO’s favorite chart won't break...",
             ],
         )
         response_text, new_session_id = await run_tracey_agent(
@@ -147,11 +165,15 @@ async def handle_message(
         if new_session_id:
             session_store.set_session(channel_id, thread_ts, new_session_id)
 
+        # Populate analysis cache before showing buttons so action
+        # handlers have consistent data without re-running RTS searches.
+        analysis = await _get_or_create_analysis(model_name, channel_id, message_ts, client)
+
         if response_text:
+            blocks = _build_response_blocks(analysis or {}, model_name, channel_id, message_ts)
             streamer = await say_stream()
             await streamer.append(markdown_text=response_text)
-            action_block = _actions_block(model_name, channel_id, message_ts)
-            await streamer.stop(blocks=[action_block])
+            await streamer.stop(blocks=blocks)
 
     except Exception:
         logger.exception("Error handling message in channel %s", event.get("channel"))
@@ -166,6 +188,50 @@ async def handle_message(
 
 
 # ---- Analysis orchestration (lazy: called on-demand by action handlers) ----
+
+
+def _build_response_blocks(
+    analysis: dict,
+    model_name: str,
+    channel_id: str,
+    message_ts: str,
+) -> list[dict]:
+    """Build the full Block Kit response from analysis data."""
+    lineage = analysis.get("lineage", {})
+    downstream: list = lineage.get("downstream", [])
+    cross_count = sum(1 for d in downstream if d.get("cross_domain"))
+    domain = lineage.get("domain", "")
+
+    blocks: list[dict] = []
+
+    header = build_impact_header(model_name, len(downstream), cross_count, domain)
+    blocks.extend(header)
+
+    ds_section = build_downstream_section(downstream)
+    if ds_section:
+        blocks.extend(ds_section)
+
+    usage = analysis.get("usage", {})
+    usage_section = build_usage_section(usage)
+    if usage_section:
+        blocks.extend(usage_section)
+
+    migration = analysis.get("migration_order", {})
+    mig_section = build_migration_preview_section(migration)
+    if mig_section:
+        blocks.extend(mig_section)
+
+    social = build_social_section(
+        analysis.get("experts", []),
+        analysis.get("stale_threads", []),
+    )
+    if social:
+        blocks.extend(social)
+
+    blocks.append(_actions_block(model_name, channel_id, message_ts))
+    blocks.extend(build_feedback_blocks())
+
+    return blocks
 
 
 async def _run_analysis(
@@ -293,11 +359,11 @@ def _detect_stale_threads(
 
 
 def _rank_experts(rts_results: list[dict]) -> list[str]:
-    """Rank users by reply count in RTS search results."""
+    """Rank users by reply count in RTS search results, excluding the bot."""
     user_counts: Counter[str] = Counter()
     for match in rts_results:
         user = match.get("author_user_id", "")
-        if user:
+        if user and user != _BOT_USER_ID:
             user_counts[user] += 1
 
     top_users = [user for user, _ in user_counts.most_common(3)]
@@ -347,7 +413,7 @@ async def _get_or_create_analysis(
 
 
 async def handle_start_cross_team_review(ack, body, client):
-    """Handle the 'Start Cross-Team Review' button click."""
+    """Open a modal for configuring the cross-team review."""
     await ack()
     try:
         ctx = _parse_action_value(body)
@@ -360,57 +426,85 @@ async def handle_start_cross_team_review(ack, body, client):
         analysis = await _get_or_create_analysis(model, channel_id, message_ts, client)
         experts = analysis.get("experts", []) if analysis else []
 
-        result = await client.conversations_create(
-            name=f"review-{model}",
-            is_private=False,
-        )
-        new_channel_id = result["channel"]["id"]
-        new_channel_name = result["channel"]["name"]
-
-        triggering_user = body.get("user", {}).get("id", "")
-        invite_users = list(set(experts + [triggering_user])) if triggering_user else experts
-        if invite_users:
-            try:
-                await client.conversations_invite(
-                    channel=new_channel_id,
-                    users=invite_users,
-                )
-            except SlackApiError as exc:
-                logger.warning("Failed to invite users to channel: %s", exc)
-
-        summary_blocks = build_cross_team_summary_blocks(
-            model,
-            new_channel_name,
-            experts,
-            new_channel_id,
-        )
-        await client.chat_postMessage(
-            channel=channel_id,
-            thread_ts=message_ts,
-            blocks=summary_blocks,
-            text=f"Cross-team review started for {model}",
-        )
-
-        try:
-            pin_msg = await client.chat_postMessage(
-                channel=new_channel_id,
-                text=f"Cross-team review for {model} impact analysis",
-                blocks=build_impact_card(analysis) if analysis else [],
-            )
-            await client.pins_add(
-                channel=new_channel_id,
-                timestamp=pin_msg["ts"],
-            )
-        except SlackApiError as exc:
-            logger.warning("Failed to pin summary in new channel: %s", exc)
+        view = build_review_modal(model, experts, channel_id, message_ts)
+        await client.views_open(trigger_id=body["trigger_id"], view=view)
 
     except Exception:
-        logger.exception("Error handling start_cross_team_review")
+        logger.exception("Error opening review modal")
         await _send_error(client, body)
 
 
+async def handle_review_modal_submission(ack, body, client, view):
+    """Handle the review modal submission — create channel with verified experts."""
+    metadata = json.loads(view.get("private_metadata", "{}"))
+    model = metadata.get("model", "")
+    original_channel = metadata.get("channel_id", "")
+    message_ts = metadata.get("message_ts", "")
+    suggested_name = metadata.get("suggested_name", f"review-{model}")
+
+    state = view.get("state", {}).get("values", {})
+    selected_users = state.get("experts_block", {}).get("experts_select", {}).get("selected_users", [])
+    selected_users = [u for u in selected_users if u != _BOT_USER_ID]
+    notes = state.get("notes_block", {}).get("notes_input", {}).get("value", "").strip()
+
+    await ack()
+
+    try:
+        result = await client.conversations_create(name=suggested_name, is_private=False)
+    except SlackApiError as exc:
+        if "name_taken" in str(exc):
+            from datetime import datetime
+
+            fallback = f"review-{model}-{datetime.now().strftime('%y%m%d%H%M%S')}"
+            result = await client.conversations_create(name=fallback, is_private=False)
+        else:
+            logger.exception("Failed to create review channel")
+            return
+
+    new_channel_id = result["channel"]["id"]
+    new_channel_name = result["channel"]["name"]
+
+    triggering_user = body.get("user", {}).get("id", "")
+    invite_users = list(set(selected_users + [triggering_user])) if triggering_user else selected_users
+    if invite_users:
+        try:
+            await client.conversations_invite(channel=new_channel_id, users=",".join(invite_users))
+        except SlackApiError as exc:
+            logger.warning("Failed to invite users: %s", exc)
+
+    analysis = await _get_or_create_analysis(model, original_channel, message_ts, client)
+    summary_blocks = build_cross_team_summary_blocks(model, new_channel_name, selected_users, new_channel_id)
+    await client.chat_postMessage(
+        channel=original_channel,
+        thread_ts=message_ts,
+        blocks=summary_blocks,
+        text=f"Cross-team review started for {model}",
+    )
+
+    if notes:
+        await client.chat_postMessage(
+            channel=new_channel_id,
+            text=f"Review notes: {notes}",
+        )
+
+    try:
+        pin_msg = await client.chat_postMessage(
+            channel=new_channel_id,
+            text=f"Cross-team review for {model} impact analysis",
+            blocks=build_checklist_blocks(
+                (analysis.get("migration_order", {}) if analysis else {}).get("migration_order", []),
+                [],
+                [],
+                model,
+            ),
+        )
+        await client.pins_add(channel=new_channel_id, timestamp=pin_msg["ts"])
+    except SlackApiError as exc:
+        logger.warning("Failed to pin summary: %s", exc)
+
+
 async def handle_generate_migration_plan(ack, body, client):
-    """Handle the 'Generate Migration Plan' button click."""
+    """Open a modal for confirming migration plan generation."""
     await ack()
     try:
         ctx = _parse_action_value(body)
@@ -431,31 +525,67 @@ async def handle_generate_migration_plan(ack, body, client):
             return
 
         migration_order = analysis.get("migration_order", {}).get("migration_order", [])
-        tests_result = analysis.get("tests", {})
-        owned_tests = tests_result.get("tests", [])
-        referential_tests = tests_result.get("referential_tests", [])
-
-        blocks = build_checklist_blocks(
-            migration_order,
-            owned_tests,
-            referential_tests,
-            model,
-        )
-
-        await client.chat_postMessage(
-            channel=channel_id,
-            thread_ts=message_ts,
-            blocks=blocks,
-            text=f"Migration plan for {model}",
-        )
+        view = build_migration_modal(model, migration_order, channel_id, message_ts)
+        await client.views_open(trigger_id=body["trigger_id"], view=view)
 
     except Exception:
-        logger.exception("Error handling generate_migration_plan")
+        logger.exception("Error opening migration modal")
         await _send_error(client, body)
 
 
+async def handle_migration_modal_submission(ack, body, client, view):
+    """Handle migration modal submission — generate selected steps."""
+    metadata = json.loads(view.get("private_metadata", "{}"))
+    model = metadata.get("model", "")
+    channel_id = metadata.get("channel_id", "")
+    message_ts = metadata.get("message_ts", "")
+
+    state = view.get("state", {}).get("values", {})
+    selected_opts = state.get("steps_block", {}).get("steps_checkbox", {}).get("selected_options", [])
+    selected_ids = [opt.get("value", "") for opt in selected_opts]
+
+    await ack()
+
+    analysis = await _get_or_create_analysis(model, channel_id, message_ts, client)
+    if analysis is None:
+        await client.chat_postMessage(
+            channel=channel_id,
+            thread_ts=message_ts,
+            text=":warning: Analysis data is not available.",
+        )
+        return
+
+    full_order = analysis.get("migration_order", {}).get("migration_order", [])
+    filtered = [s for s in full_order if s.get("id") in selected_ids] if selected_ids else full_order
+
+    tests_result = analysis.get("tests", {})
+    blocks = build_checklist_blocks(
+        filtered,
+        tests_result.get("tests", []),
+        tests_result.get("referential_tests", []),
+        model,
+    )
+
+    notes = state.get("notes_block", {}).get("notes_input", {}).get("value", "").strip()
+    if notes:
+        blocks.insert(
+            1,
+            {
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": f"*Notes:* {notes}"},
+            },
+        )
+
+    await client.chat_postMessage(
+        channel=channel_id,
+        thread_ts=message_ts,
+        blocks=blocks,
+        text=f"Migration plan for {model}",
+    )
+
+
 async def handle_mark_as_outdated(ack, body, client):
-    """Handle the 'Mark as Outdated' button click."""
+    """Open a modal for selecting stale threads to mark as outdated."""
     await ack()
     try:
         ctx = _parse_action_value(body)
@@ -480,43 +610,57 @@ async def handle_mark_as_outdated(ack, body, client):
         last_change_data = last_change.get("last_change", {}) or {}
         last_change_date = last_change_data.get("changed_at", "unknown date")
 
-        current_permalink = await _get_message_permalink(client, channel_id, message_ts)
-
-        count = 0
-        for thread in stale_threads:
-            try:
-                blocks = build_stale_thread_block(
-                    thread["ts"],
-                    thread["channel"],
-                    thread.get("permalink", ""),
-                    last_change_date,
-                    current_permalink or "",
-                )
-                await client.chat_postMessage(
-                    channel=thread["channel"],
-                    thread_ts=thread["ts"],
-                    blocks=blocks,
-                    text="This discussion may be outdated.",
-                )
-                count += 1
-            except SlackApiError as exc:
-                logger.warning(
-                    "Failed to mark stale thread %s as outdated: %s",
-                    thread.get("ts"),
-                    exc,
-                )
-
-        confirm_blocks = build_marked_outdated_confirmation(count)
-        await client.chat_postMessage(
-            channel=channel_id,
-            thread_ts=message_ts,
-            blocks=confirm_blocks,
-            text=f"Marked {count} stale thread(s) as outdated.",
-        )
+        view = build_outdated_modal(model, stale_threads, last_change_date, channel_id, message_ts)
+        await client.views_open(trigger_id=body["trigger_id"], view=view)
 
     except Exception:
-        logger.exception("Error handling mark_as_outdated")
+        logger.exception("Error opening outdated modal")
         await _send_error(client, body)
+
+
+async def handle_outdated_modal_submission(ack, body, client, view):
+    """Handle outdated modal submission — mark selected threads."""
+    metadata = json.loads(view.get("private_metadata", "{}"))
+    _model = metadata.get("model", "")
+    channel_id = metadata.get("channel_id", "")
+    message_ts = metadata.get("message_ts", "")
+    last_change_date = metadata.get("last_change_date", "unknown date")
+
+    state = view.get("state", {}).get("values", {})
+    selected_opts = state.get("threads_block", {}).get("threads_checkbox", {}).get("selected_options", [])
+
+    await ack()
+
+    current_permalink = await _get_message_permalink(client, channel_id, message_ts)
+
+    count = 0
+    for opt in selected_opts:
+        try:
+            thread_data = json.loads(opt.get("value", "{}"))
+            blocks = build_stale_thread_block(
+                thread_data["ts"],
+                thread_data["channel"],
+                "",
+                last_change_date,
+                current_permalink or "",
+            )
+            await client.chat_postMessage(
+                channel=thread_data["channel"],
+                thread_ts=thread_data["ts"],
+                blocks=blocks,
+                text="This discussion may be outdated.",
+            )
+            count += 1
+        except (json.JSONDecodeError, SlackApiError, KeyError) as exc:
+            logger.warning("Failed to mark stale thread: %s", exc)
+
+    confirm_blocks = build_marked_outdated_confirmation(count)
+    await client.chat_postMessage(
+        channel=channel_id,
+        thread_ts=message_ts,
+        blocks=confirm_blocks,
+        text=f"Marked {count} stale thread(s) as outdated.",
+    )
 
 
 async def handle_annotate_pr(ack, body, client):

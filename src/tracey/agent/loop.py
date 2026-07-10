@@ -1,8 +1,7 @@
 """Agent loop: configure and run Tracey via Claude Agent SDK.
 
-Configures the Claude Agent SDK with Tracey's system prompt, three MCP servers
-(dbt stdio, Tracey in-process, Slack remote HTTP), and the allowed tool list.
-Handles session management for conversation continuity.
+MCP server configuration is delegated to ``agent/mcp_config.py`` so that
+adding a new external server does not require touching the agent loop.
 """
 
 import logging
@@ -17,10 +16,10 @@ from claude_agent_sdk import (
     TextBlock,
     create_sdk_mcp_server,
 )
-from claude_agent_sdk.types import McpHttpServerConfig
 
 from tracey.agent.context import tracey_deps_var
 from tracey.agent.deps import TraceyDeps
+from tracey.agent.mcp_config import build_mcp_servers
 from tracey.agent.system_prompt import TRACEY_SYSTEM_PROMPT
 from tracey.agent.tools import (
     add_reaction_tool,
@@ -28,6 +27,7 @@ from tracey.agent.tools import (
     get_last_change_tool,
     get_migration_order_tool,
     get_usage_tool,
+    render_diagram_to_slack_tool,
     search_slack_threads_tool,
 )
 
@@ -36,7 +36,6 @@ logger = logging.getLogger(__name__)
 _DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
 _ANTHROPIC_BASE_URL = os.environ.get("ANTHROPIC_BASE_URL", "https://api.deepseek.com/anthropic")
 _DBT_PROJECT_DIR = os.environ.get("DBT_PROJECT_DIR", "dbt_project")
-_SLACK_MCP_URL = "https://mcp.slack.com/mcp"
 
 _MODEL = "deepseek-v4-pro"
 
@@ -58,17 +57,9 @@ tracey_tools_server = create_sdk_mcp_server(
         annotate_pr_tool,
         search_slack_threads_tool,
         add_reaction_tool,
+        render_diagram_to_slack_tool,
     ],
 )
-
-_TRACEY_TOOL_NAMES = [
-    "mcp__tracey-tools__get_migration_order",
-    "mcp__tracey-tools__get_usage",
-    "mcp__tracey-tools__get_last_change",
-    "mcp__tracey-tools__annotate_pr",
-    "mcp__tracey-tools__search_slack_threads",
-    "mcp__tracey-tools__add_reaction",
-]
 
 
 async def run_tracey_agent(
@@ -96,29 +87,11 @@ async def run_tracey_agent(
     if deps:
         tracey_deps_var.set(deps)
 
-    mcp_servers: dict = {"tracey-tools": tracey_tools_server}
-
-    dbt_mcp: dict = {
-        "type": "stdio",
-        "command": "uvx",
-        "args": ["dbt-mcp"],
-        "env": {"DBT_PROJECT_DIR": str(Path(_DBT_PROJECT_DIR).absolute())},
-    }
-    mcp_servers["dbt"] = dbt_mcp
-
-    allowed_tools = list(_TRACEY_TOOL_NAMES)
-    allowed_tools.append("mcp__dbt__*")
-
-    if deps and deps.user_token:
-        try:
-            mcp_servers["slack-mcp"] = McpHttpServerConfig(
-                type="http",
-                url=_SLACK_MCP_URL,
-                headers={"Authorization": f"Bearer {deps.user_token}"},
-            )
-            allowed_tools.append("mcp__slack-mcp__*")
-        except Exception:
-            logger.warning("Failed to configure Slack MCP server", exc_info=True)
+    mcp_servers, allowed_tools = build_mcp_servers(
+        deps=deps,
+        tracey_tools_server=tracey_tools_server,
+        dbt_project_dir=str(Path(_DBT_PROJECT_DIR).absolute()),
+    )
 
     options = ClaudeAgentOptions(
         system_prompt=TRACEY_SYSTEM_PROMPT,

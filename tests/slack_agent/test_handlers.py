@@ -153,6 +153,20 @@ class TestHandleMessage:
             "run_tracey_agent",
             return_value=("Impact analysis...", "session_1"),
         )
+        # Mock _run_analysis to avoid actual service calls in the cache pre-population
+        mocker.patch.object(
+            handlers_module,
+            "_run_analysis",
+            return_value={
+                "lineage": {"downstream": [], "upstream": [], "domain": "sales"},
+                "migration_order": {"migration_order": []},
+                "usage": {"total_queries": 0, "total_dashboards": 0},
+                "last_change": {},
+                "tests": {"tests": [], "referential_tests": []},
+                "stale_threads": [],
+                "experts": [],
+            },
+        )
 
         event = _message_event()
         await handle_message(
@@ -165,8 +179,7 @@ class TestHandleMessage:
         cached = handlers_module._ANALYSIS_CACHE.get(("C123", "1234567890.123456"))
         assert cached is not None
         assert cached["model"] == "fct_sales_pipeline"
-        assert cached["channel_id"] == "C123"
-        assert "lineage" not in cached
+        assert "lineage" in cached
 
     @pytest.mark.anyio
     async def itShouldnt_reprocess_same_message(
@@ -247,38 +260,32 @@ class TestHandleMessage:
 
 class TestHandleStartCrossTeamReview:
     @pytest.mark.anyio
-    async def itShould_ack_and_create_channel(
+    async def itShould_open_review_modal(
         self,
         mock_slack_client,
         _populate_cache,
-        mocker,
     ):
-        mock_slack_client.conversations_create.return_value = {
-            "channel": {"id": "C_NEW", "name": "review-fct_sales_pipeline"},
-        }
-        mock_slack_client.conversations_invite = AsyncMock()
-        mock_slack_client.pins_add = AsyncMock()
-        mock_slack_client.chat_postMessage.return_value = {"ts": "pin_ts"}
+        mock_slack_client.views_open = AsyncMock()
 
         ack = AsyncMock()
         body = _action_body()
         await handle_start_cross_team_review(ack, body, mock_slack_client)
 
         ack.assert_called_once()
-        mock_slack_client.conversations_create.assert_called_once()
+        mock_slack_client.views_open.assert_called_once()
+        view_args = mock_slack_client.views_open.call_args.kwargs
+        assert view_args["trigger_id"] == "trig_123"
+        assert "view" in view_args
 
     @pytest.mark.anyio
-    async def itShould_fail_gracefully_on_channel_error(
+    async def itShould_fail_gracefully_on_view_error(
         self,
         mock_slack_client,
         _populate_cache,
     ):
         from slack_sdk.errors import SlackApiError
 
-        mock_slack_client.conversations_create.side_effect = SlackApiError(
-            "err",
-            {"ok": False},
-        )
+        mock_slack_client.views_open = AsyncMock(side_effect=SlackApiError("err", {"ok": False}))
         ack = AsyncMock()
         body = _action_body()
         await handle_start_cross_team_review(ack, body, mock_slack_client)
@@ -290,20 +297,22 @@ class TestHandleStartCrossTeamReview:
 
 class TestHandleGenerateMigrationPlan:
     @pytest.mark.anyio
-    async def itShould_post_checklist_in_thread(
+    async def itShould_open_migration_modal(
         self,
         mock_slack_client,
         sample_analysis,
     ):
         handlers_module._ANALYSIS_CACHE[("C123", "1234567890.123456")] = sample_analysis
+        mock_slack_client.views_open = AsyncMock()
+
         ack = AsyncMock()
         body = _action_body()
         await handle_generate_migration_plan(ack, body, mock_slack_client)
 
         ack.assert_called_once()
-        call = mock_slack_client.chat_postMessage.call_args
-        assert call.kwargs["channel"] == "C123"
-        assert call.kwargs["blocks"] is not None
+        mock_slack_client.views_open.assert_called_once()
+        view_args = mock_slack_client.views_open.call_args.kwargs
+        assert view_args["trigger_id"] == "trig_123"
 
     @pytest.mark.anyio
     async def itShould_handle_missing_analysis(
@@ -331,56 +340,43 @@ class TestHandleGenerateMigrationPlan:
 
 class TestHandleMarkAsOutdated:
     @pytest.mark.anyio
-    async def itShould_reply_to_stale_threads(
+    async def itShould_open_outdated_modal(
         self,
         mock_slack_client,
         sample_analysis,
         mocker,
     ):
         handlers_module._ANALYSIS_CACHE[("C123", "1234567890.123456")] = sample_analysis
-        mocker.patch.object(
-            handlers_module,
-            "_get_message_permalink",
-            return_value="https://slack.example.com/current",
-        )
+        mock_slack_client.views_open = AsyncMock()
+
         ack = AsyncMock()
         body = _action_body()
         await handle_mark_as_outdated(ack, body, mock_slack_client)
 
         ack.assert_called_once()
-        calls = mock_slack_client.chat_postMessage.call_args_list
-        assert len(calls) >= 2
+        mock_slack_client.views_open.assert_called_once()
+        view_args = mock_slack_client.views_open.call_args.kwargs
+        assert view_args["trigger_id"] == "trig_123"
 
     @pytest.mark.anyio
-    async def itShould_post_confirmation_even_with_no_stale(
+    async def itShould_handle_no_stale_threads(
         self,
         mock_slack_client,
         mocker,
     ):
-        key = ("C123", "1234567890.123456")
-        handlers_module._ANALYSIS_CACHE[key] = {
-            "lineage": {},
-            "migration_order": {},
-            "usage": {},
-            "last_change": {"last_change": None},
-            "tests": {},
-            "stale_threads": [],
-            "experts": [],
-            "model": "fct_sales_pipeline",
-            "channel_id": "C123",
-            "message_ts": "1234567890.123456",
-        }
         mocker.patch.object(
             handlers_module,
-            "_get_message_permalink",
-            return_value="https://slack.example.com/current",
+            "_run_analysis",
+            side_effect=RuntimeError("analysis unavailable"),
         )
         ack = AsyncMock()
         body = _action_body()
         await handle_mark_as_outdated(ack, body, mock_slack_client)
 
-        ack.assert_called_once()
-        assert mock_slack_client.chat_postMessage.call_count >= 1
+        warning_call = [
+            c for c in mock_slack_client.chat_postMessage.call_args_list if ":warning:" in str(c.kwargs.get("text", ""))
+        ]
+        assert len(warning_call) >= 1
 
 
 # ---- Annotate PR ----
