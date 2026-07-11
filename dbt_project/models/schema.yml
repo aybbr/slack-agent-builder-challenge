@@ -1,19 +1,25 @@
 version: 2
 
 models:
-  - name: fct_sales_pipeline
-    description: "Final sales pipeline fact table"
+  # ---- Staging ----
+  - name: stg_sf_opportunities
+    description: "Staged Salesforce opportunities with raw lead_score"
     meta:
       domain: sales
     columns:
       - name: opportunity_id
-        description: "Primary key for opportunities"
+        description: "Primary key"
         tests:
           - not_null
+          - unique
+      - name: account_id
+        description: "Foreign key to accounts"
       - name: lead_score
-        description: "Lead quality score (1-100)"
+        description: "Lead quality score (1-100). Central column — flows through entire DAG."
+      - name: amount
+        description: "Deal amount in USD"
       - name: stage
-        description: "Current sales stage"
+        description: "Sales stage"
         tests:
           - accepted_values:
               arguments:
@@ -24,36 +30,90 @@ models:
                   - negotiation
                   - closed_won
                   - closed_lost
-      - name: amount
-        description: "Deal amount in USD"
 
-  - name: fct_revenue_recognition
-    description: "Revenue recognition fact table — depends on fct_sales_pipeline"
+  - name: stg_sf_accounts
+    description: "Staged Salesforce accounts shared by sales and product domains"
+    meta:
+      domain: sales
+
+  - name: stg_product_events
+    description: "Product usage events per account per feature"
+    meta:
+      domain: product
+
+  - name: stg_billing_invoices
+    description: "Billing invoices from the finance system"
     meta:
       domain: finance
+
+  - name: stg_billing_subscriptions
+    description: "Subscription plans from the billing system"
+    meta:
+      domain: finance
+
+  # ---- Intermediate ----
+  - name: int_account_score
+    description: "Account health scoring — aggregates opportunities per account. Computes avg_lead_score."
+    meta:
+      domain: sales
+
+  - name: int_product_usage
+    description: "Product usage aggregation per account per feature. Shares stg_sf_accounts as upstream."
+    meta:
+      domain: product
+
+  - name: int_revenue_monthly
+    description: "Monthly revenue summary per account from billing data"
+    meta:
+      domain: finance
+
+  - name: int_account_360
+    description: "Unified 360 view — joins sales (int_account_score) + product (int_product_usage). Diamond convergence point."
+    meta:
+      domain: sales
+
+  - name: int_pipeline_enrichment
+    description: "Enriched pipeline — adds lead_score_tier and account_segment to opportunities"
+    meta:
+      domain: sales
+
+  - name: int_forecast_input
+    description: "Revenue forecast inputs — joins revenue monthly + pipeline enrichment"
+    meta:
+      domain: finance
+
+  # ---- Marts ----
+  - name: fct_sales_pipeline
+    description: "Golden fact table for sales pipeline analysis"
+    meta:
+      domain: sales
     columns:
       - name: opportunity_id
-        description: "Foreign key to fct_sales_pipeline"
+        description: "Primary key for opportunities"
         tests:
-          - relationships:
-              arguments:
-                to: ref('fct_sales_pipeline')
-                field: opportunity_id
-      - name: lead_score_weighted
-        description: "Weighted lead score derived from fct_sales_pipeline.lead_score * 0.3"
+          - not_null
+
+  - name: fct_revenue
+    description: "Revenue recognition fact — depends on int_pipeline_enrichment (sales) through lead_score_tier. Cross-domain dependency."
+    meta:
+      domain: finance
+
+  - name: dim_account
+    description: "Account dimension — unified account view from int_account_360"
+    meta:
+      domain: sales
+
+  - name: fct_product_engagement
+    description: "Product engagement fact table"
+    meta:
+      domain: product
 
   - name: rpt_commissions
-    description: "Commission report — uses lead_score from pipeline"
+    description: "Commission report — uses lead_score_tier from fct_sales_pipeline to calculate rates"
     meta:
       domain: sales
 
-  - name: dim_customer
-    description: "Customer dimension table"
+  - name: rpt_exec_dashboard
+    description: "Executive dashboard pulling from all three domains"
     meta:
       domain: sales
-    columns:
-      - name: customer_id
-        description: "Unique customer identifier"
-        tests:
-          - unique
-          - not_null

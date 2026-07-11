@@ -11,7 +11,7 @@ class TestGetUsage:
     def itShould_compute_correct_totals(self, db_path):
         result = get_usage("fct_sales_pipeline", db_path)
         assert result["total_queries"] == 770
-        assert result["total_dashboards"] == 5
+        assert result["total_dashboards"] == 7
 
     def itShould_return_zero_totals_for_missing_asset(self, db_path):
         result = get_usage("nonexistent_model", db_path)

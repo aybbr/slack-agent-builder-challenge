@@ -68,24 +68,28 @@ def manifest_path(tmp_path):
     """Create a minimal dbt manifest JSON for prefilter tests."""
     manifest = {
         "nodes": {
-            "model.tracey_demo.stg_salesforce__opportunity": {
-                "name": "stg_salesforce__opportunity",
+            "model.tracey_demo.stg_sf_opportunities": {
+                "name": "stg_sf_opportunities",
                 "resource_type": "model",
             },
-            "model.tracey_demo.stg_finance__revenue": {
-                "name": "stg_finance__revenue",
+            "model.tracey_demo.stg_sf_accounts": {
+                "name": "stg_sf_accounts",
                 "resource_type": "model",
             },
             "model.tracey_demo.fct_sales_pipeline": {
                 "name": "fct_sales_pipeline",
                 "resource_type": "model",
             },
-            "model.tracey_demo.fct_revenue_recognition": {
-                "name": "fct_revenue_recognition",
+            "model.tracey_demo.fct_revenue": {
+                "name": "fct_revenue",
                 "resource_type": "model",
             },
             "model.tracey_demo.rpt_commissions": {
                 "name": "rpt_commissions",
+                "resource_type": "model",
+            },
+            "model.tracey_demo.int_account_360": {
+                "name": "int_account_360",
                 "resource_type": "model",
             },
             "test.tracey_demo.not_null_test": {
@@ -112,11 +116,11 @@ def sample_analysis():
             "asset_id": "fct_sales_pipeline",
             "domain": "sales",
             "upstream": [
-                {"id": "stg_salesforce__opportunity", "domain": "staging"},
+                {"id": "int_pipeline_enrichment", "domain": "sales"},
             ],
             "downstream": [
                 {
-                    "id": "fct_revenue_recognition",
+                    "id": "fct_revenue",
                     "domain": "finance",
                     "cross_domain": True,
                 },
@@ -139,7 +143,7 @@ def sample_analysis():
                     "cross_domain": False,
                 },
                 {
-                    "id": "fct_revenue_recognition",
+                    "id": "fct_revenue",
                     "domain": "finance",
                     "order": 2,
                     "is_source": False,
@@ -159,8 +163,8 @@ def sample_analysis():
             "column_name": "lead_score",
             "downstream_usages": [
                 {
-                    "model": "fct_revenue_recognition",
-                    "column": "lead_score_weighted",
+                    "model": "fct_revenue",
+                    "column": "adjusted_revenue",
                     "usage_type": "expression",
                     "confidence": "high",
                 },
@@ -174,15 +178,15 @@ def sample_analysis():
                 {"domain": "finance", "queries": 320, "dashboards": 2},
             ],
             "total_queries": 770,
-            "total_dashboards": 5,
+            "total_dashboards": 7,
         },
         "last_change": {
             "asset_id": "fct_sales_pipeline",
             "last_change": {
-                "changed_at": "2026-06-20T14:30:00",
-                "change_type": "refactor",
-                "changed_by": "sales_engineer",
-                "summary": "Optimized pipeline joins",
+                "changed_at": "2026-06-20T09:00:00",
+                "change_type": "column_add",
+                "changed_by": "alex.chen",
+                "summary": "Added weighted_pipeline_value based on lead_score_tier",
             },
         },
         "tests": {
@@ -197,11 +201,11 @@ def sample_analysis():
             ],
             "referential_tests": [
                 {
-                    "name": "relationships_fct_revenue_recognition_opportunity_id",
-                    "column": "opportunity_id",
+                    "name": "relationships_fct_revenue_account_id",
+                    "column": "account_id",
                     "type": "relationships",
                     "severity": "error",
-                    "owner": "fct_revenue_recognition",
+                    "owner": "fct_revenue",
                 },
             ],
         },

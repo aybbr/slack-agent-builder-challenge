@@ -7,12 +7,12 @@ class TestGetLastChange:
         assert result["asset_id"] == "fct_sales_pipeline"
         change = result["last_change"]
         assert change is not None
-        assert change["change_type"] == "refactor"
+        assert change["change_type"] == "column_add"
         assert "2026-06-20" in change["changed_at"]
 
     def itShould_return_null_last_change_for_unchanged_asset(self, db_path):
-        result = get_last_change("dim_customer", db_path)
-        assert result["asset_id"] == "dim_customer"
+        result = get_last_change("stg_product_events", db_path)
+        assert result["asset_id"] == "stg_product_events"
         assert result["last_change"] is None
 
     def itShould_return_error_for_missing_db(self):
@@ -20,7 +20,7 @@ class TestGetLastChange:
         assert "error" in result
 
     def itShould_include_all_change_fields(self, db_path):
-        result = get_last_change("fct_revenue_recognition", db_path)
+        result = get_last_change("fct_revenue", db_path)
         change = result["last_change"]
         assert change is not None
         assert "changed_at" in change

@@ -22,20 +22,60 @@ models:
     staging:
       +schema: staging
       +materialized: view
-      +meta:
-        domain: staging
+      stg_sf_opportunities:
+        +meta:
+          domain: sales
+      stg_sf_accounts:
+        +meta:
+          domain: sales
+      stg_product_events:
+        +meta:
+          domain: product
+      stg_billing_invoices:
+        +meta:
+          domain: finance
+      stg_billing_subscriptions:
+        +meta:
+          domain: finance
+    intermediate:
+      +schema: intermediate
+      +materialized: view
+      int_account_score:
+        +meta:
+          domain: sales
+      int_product_usage:
+        +meta:
+          domain: product
+      int_revenue_monthly:
+        +meta:
+          domain: finance
+      int_account_360:
+        +meta:
+          domain: sales
+      int_pipeline_enrichment:
+        +meta:
+          domain: sales
+      int_forecast_input:
+        +meta:
+          domain: finance
     marts:
       +schema: main
       +materialized: table
-      dim_customer:
-        +meta:
-          domain: sales
       fct_sales_pipeline:
         +meta:
           domain: sales
-      fct_revenue_recognition:
+      fct_revenue:
         +meta:
           domain: finance
+      dim_account:
+        +meta:
+          domain: sales
+      fct_product_engagement:
+        +meta:
+          domain: product
       rpt_commissions:
+        +meta:
+          domain: sales
+      rpt_exec_dashboard:
         +meta:
           domain: sales
