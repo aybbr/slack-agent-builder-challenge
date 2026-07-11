@@ -193,8 +193,7 @@ def main() -> None:
     _post_msg(
         client,
         sid["sales-data"],
-        "That might be it. Where does `lead_score` actually come from? I want to "
-        "understand what factors into it.",
+        "That might be it. Where does `lead_score` actually come from? I want to understand what factors into it.",
         "priya",
         thread_ts=t1_ts,
     )
@@ -233,8 +232,7 @@ def main() -> None:
     _post_msg(
         client,
         sid["finance-data"],
-        "Wait, that column is owned by Sales? So a Sales change broke my "
-        "Finance forecast and nobody told us?",
+        "Wait, that column is owned by Sales? So a Sales change broke my Finance forecast and nobody told us?",
         "maya",
         thread_ts=t2_ts,
     )
@@ -493,9 +491,7 @@ def main() -> None:
                 {"ts": t3_ts, "channel": sid["data-ops"], "permalink": ""},
                 {"ts": t4_ts, "channel": sid["product-data"], "permalink": ""},
             ],
-            "last_change_date": datetime.fromtimestamp(float(gap_ts), tz=UTC).strftime(
-                "%Y-%m-%dT%H:%M:%SZ"
-            ),
+            "last_change_date": datetime.fromtimestamp(float(gap_ts), tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
         }
     }
     analysis_path = _DATA_DIR / "seeded_analysis.json"
