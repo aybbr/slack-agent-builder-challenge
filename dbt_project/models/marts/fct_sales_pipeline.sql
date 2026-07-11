@@ -1,9 +1,12 @@
 select
     opportunity_id,
-    customer_id,
+    account_id,
+    lead_score_tier,
+    account_segment,
     amount,
     stage,
-    lead_score,
+    raw_lead_score,
     close_date,
-    created_at
-from {{ ref('stg_salesforce__opportunity') }}
+    created_at,
+    weighted_pipeline_value
+from {{ ref('int_pipeline_enrichment') }}

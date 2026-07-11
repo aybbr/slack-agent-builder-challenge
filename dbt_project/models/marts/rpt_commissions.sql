@@ -1,13 +1,16 @@
 select
+    sp.account_id,
     sp.opportunity_id,
     sp.amount,
-    sp.lead_score,
-    rr.lead_score_weighted,
+    sp.lead_score_tier,
+    sp.weighted_pipeline_value,
+    r.adjusted_revenue,
     case
-        when rr.lead_score_weighted > 10
-            then sp.amount * 0.10
+        when sp.lead_score_tier = 'high' then sp.amount * 0.12
+        when sp.lead_score_tier = 'medium' then sp.amount * 0.08
         else sp.amount * 0.05
-    end as commission
+    end as commission,
+    r.revenue_month
 from {{ ref('fct_sales_pipeline') }} sp
-left join {{ ref('fct_revenue_recognition') }} rr
-    on sp.opportunity_id = rr.opportunity_id
+left join {{ ref('fct_revenue') }} r
+    on sp.account_id = r.account_id

@@ -4,22 +4,21 @@ from tracey.services.test_service import get_tests
 class TestGetTests:
     def itShould_find_tests_owned_by_asset(self, manifest_path):
         result = get_tests("fct_sales_pipeline", manifest_path)
-        assert len(result["tests"]) == 2
+        assert len(result["tests"]) == 1
         test_names = {t["name"] for t in result["tests"]}
         assert "not_null_fct_sales_pipeline_opportunity_id" in test_names
-        assert "accepted_values_fct_sales_pipeline_stage" in test_names
 
     def itShould_report_referential_tests_separately(self, manifest_path):
         result = get_tests("fct_sales_pipeline", manifest_path)
         assert len(result["referential_tests"]) == 1
         ref = result["referential_tests"][0]
         assert ref["type"] == "relationships"
-        assert ref["owner"] == "fct_revenue_recognition"
+        assert ref["owner"] == "fct_revenue"
 
     def itShould_extract_test_type_from_metadata(self, manifest_path):
         result = get_tests("fct_sales_pipeline", manifest_path)
         types = {t["type"] for t in result["tests"]}
-        assert "not_null" in types or "accepted_values" in types
+        assert "not_null" in types
 
     def itShould_extract_column_name(self, manifest_path):
         result = get_tests("fct_sales_pipeline", manifest_path)
@@ -33,7 +32,7 @@ class TestGetTests:
                 assert test["severity"] == "error"
 
     def itShould_return_empty_for_untested_asset(self, manifest_path):
-        result = get_tests("stg_salesforce__opportunity", manifest_path)
+        result = get_tests("stg_product_events", manifest_path)
         assert result["tests"] == []
         assert result["referential_tests"] == []
 

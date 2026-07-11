@@ -45,14 +45,14 @@ class TestHasModelMention:
     def itShould_match_longest_model_name_first(self, monkeypatch, manifest_path):
         monkeypatch.setattr(prefilter_module, "_MANIFEST_PATH", manifest_path)
 
-        result = prefilter_module.has_model_mention("What about stg_salesforce__opportunity and fct_sales_pipeline?")
-        assert result == "stg_salesforce__opportunity"
+        result = prefilter_module.has_model_mention("What about stg_sf_opportunities and fct_sales_pipeline?")
+        assert result == "stg_sf_opportunities"
 
     def itShould_handle_model_names_with_underscores(self, monkeypatch, manifest_path):
         monkeypatch.setattr(prefilter_module, "_MANIFEST_PATH", manifest_path)
 
-        result = prefilter_module.has_model_mention("check stg_salesforce__opportunity for duplicates")
-        assert result == "stg_salesforce__opportunity"
+        result = prefilter_module.has_model_mention("check stg_sf_accounts for duplicates")
+        assert result == "stg_sf_accounts"
 
     def itShould_handle_text_with_special_characters(self, monkeypatch, manifest_path):
         monkeypatch.setattr(prefilter_module, "_MANIFEST_PATH", manifest_path)
@@ -68,7 +68,7 @@ class TestGetModelNames:
         names = prefilter_module._get_model_names()
         assert isinstance(names, frozenset)
         assert "fct_sales_pipeline" in names
-        assert "fct_revenue_recognition" in names
+        assert "fct_revenue" in names
         assert "rpt_commissions" in names
 
     def itShould_not_include_test_node_names(self, monkeypatch, manifest_path):

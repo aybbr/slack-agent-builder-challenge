@@ -4,6 +4,8 @@ sources:
   - name: raw
     schema: main
     tables:
-      - name: raw_salesforce_opportunity
-      - name: raw_finance_revenue
-      - name: raw_customer
+      - name: raw_salesforce_opportunities
+      - name: raw_salesforce_accounts
+      - name: raw_product_events
+      - name: raw_billing_invoices
+      - name: raw_billing_subscriptions
