@@ -5,6 +5,7 @@ import os
 import re
 from collections import Counter
 from datetime import UTC, datetime
+from pathlib import Path
 
 from slack_bolt.async_app import AsyncApp
 from slack_sdk.errors import SlackApiError
@@ -63,6 +64,18 @@ _MAX_PROCESSED_SIZE = 1000
 
 PROCESSED_MESSAGES: set[tuple[str, str]] = set()
 _ANALYSIS_CACHE: dict[tuple[str, str], dict] = {}
+
+_SEEDED_ANALYSIS_PATH = Path("data/seeded_analysis.json")
+
+
+def _load_seeded_analysis() -> dict:
+    """Load pre-computed seeded analysis data from the seeding script."""
+    if not _SEEDED_ANALYSIS_PATH.exists():
+        return {}
+    try:
+        return json.loads(_SEEDED_ANALYSIS_PATH.read_text())
+    except (json.JSONDecodeError, OSError):
+        return {}
 
 
 def register_handlers(bolt_app: AsyncApp) -> None:
@@ -388,6 +401,7 @@ async def _get_or_create_analysis(
 
     Action handlers call this instead of looking up the cache directly,
     so that analysis runs only when a user actually clicks a button.
+    Merges seeded analysis data when available for demo scenarios.
     """
     key = (channel_id, message_ts)
     cached = _ANALYSIS_CACHE.get(key) or {}
@@ -404,6 +418,18 @@ async def _get_or_create_analysis(
     analysis["model"] = model
     analysis["channel_id"] = channel_id
     analysis["message_ts"] = message_ts
+
+    seeded = _load_seeded_analysis().get(model)
+    if seeded:
+        if seeded.get("expert_names"):
+            analysis["experts"] = seeded["expert_names"]
+        if seeded.get("stale_threads"):
+            analysis["stale_threads"] = seeded["stale_threads"]
+        if seeded.get("last_change_date") and (
+            "last_change" not in analysis or not analysis["last_change"].get("last_change")
+        ):
+            analysis["last_change"] = {"last_change": {"changed_at": seeded["last_change_date"]}}
+
     _ANALYSIS_CACHE[key] = analysis
     _trim_cache()
     return analysis
