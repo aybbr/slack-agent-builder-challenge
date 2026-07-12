@@ -36,6 +36,7 @@ _TRACEY_TOOL_NAMES: frozenset[str] = frozenset(
     [
         "mcp__tracey-tools__add_reaction",
         "mcp__tracey-tools__annotate_pr",
+        "mcp__tracey-tools__close_pr",
         "mcp__tracey-tools__get_last_change",
         "mcp__tracey-tools__get_migration_order",
         "mcp__tracey-tools__get_usage",

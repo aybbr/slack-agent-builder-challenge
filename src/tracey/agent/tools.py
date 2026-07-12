@@ -7,10 +7,12 @@ Claude Agent SDK tool result protocol.
 Context-aware tools retrieve ``TraceyDeps`` from ``tracey_deps_var`` at runtime.
 """
 
+from __future__ import annotations
+
 import base64
 import json
 import logging
-import os
+from collections.abc import Callable
 
 import aiohttp
 from claude_agent_sdk import tool
@@ -18,23 +20,24 @@ from mcp.types import ToolAnnotations
 from slack_sdk.errors import SlackApiError
 
 from tracey.services.changelog_service import get_last_change
-from tracey.services.github_service import annotate_pr
+from tracey.services.env_config import EnvConfig
+from tracey.services.github_service import annotate_pr, close_pr
 from tracey.services.lineage_service import get_migration_order
 from tracey.services.usage_service import get_usage
 
 logger = logging.getLogger(__name__)
 
-_MANIFEST_PATH = os.environ.get("MANIFEST_PATH", "dbt_project/target/manifest.json")
-_DUCKDB_PATH = os.environ.get("DUCKDB_PATH", "data/demo.duckdb")
-_GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
-_GITHUB_REPO = os.environ.get("GITHUB_REPO", "")
-
 _MERMAID_INK_BASE = "https://mermaid.ink/img"
 
 
 # ---------------------------------------------------------------------------
-# Helper
+# Helpers
 # ---------------------------------------------------------------------------
+
+
+def _get_env() -> EnvConfig:
+    """Return a cached snapshot of runtime environment configuration."""
+    return EnvConfig.from_env()
 
 
 def _json_result(data: dict | list | None, error: str | None = None) -> dict:
@@ -44,94 +47,79 @@ def _json_result(data: dict | list | None, error: str | None = None) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Tool: get_migration_order
+# Tool factory — read-only model tools
 # ---------------------------------------------------------------------------
 
 
-@tool(
-    name="get_migration_order",
-    description=(
+def _make_readonly_tool(
+    name: str,
+    description: str,
+    service_fn: Callable,
+    path_attr: str,
+) -> Callable:
+    """Create a read-only agent tool that validates a model name and delegates
+    to a ``services/`` function.
+
+    ``path_attr`` names the ``EnvConfig`` attribute that holds the data-path
+    argument for the service function (e.g. ``"manifest_path"``).
+    """
+
+    @tool(
+        name=name,
+        description=description,
+        input_schema={"model": str},
+        annotations=ToolAnnotations(readOnlyHint=True),
+    )
+    async def _tool(args: dict) -> dict:
+        model = args["model"].strip()
+        if not model:
+            return _json_result(None, error="model is required")
+
+        try:
+            env = _get_env()
+            result = service_fn(model, getattr(env, path_attr))
+        except Exception as exc:
+            logger.exception("%s failed for %%s", name, model)
+            return _json_result(None, error=str(exc))
+
+        return _json_result(result)
+
+    return _tool
+
+
+get_migration_order_tool = _make_readonly_tool(
+    "get_migration_order",
+    (
         "Get a topologically sorted migration plan for all downstream models "
         "of a given dbt model. Returns each descendant with its migration order "
         "number, domain, cross-domain flag, and whether it is the source model. "
         "Use this when planning how to sequence changes across dependent models."
     ),
-    input_schema={"model": str},
-    annotations=ToolAnnotations(readOnlyHint=True),
+    get_migration_order,
+    "manifest_path",
 )
-async def get_migration_order_tool(args: dict) -> dict:
-    """Return migration order for the given model."""
-    model = args["model"].strip()
-    if not model:
-        return _json_result(None, error="model is required")
 
-    try:
-        result = get_migration_order(model, _MANIFEST_PATH)
-    except Exception as exc:
-        logger.exception("get_migration_order failed for %s", model)
-        return _json_result(None, error=str(exc))
-
-    return _json_result(result)
-
-
-# ---------------------------------------------------------------------------
-# Tool: get_usage
-# ---------------------------------------------------------------------------
-
-
-@tool(
-    name="get_usage",
-    description=(
+get_usage_tool = _make_readonly_tool(
+    "get_usage",
+    (
         "Get per-domain usage statistics for a dbt model, including query counts "
         "and dashboard counts aggregated by domain. Useful for understanding which "
         "teams depend on a model and how heavily it is used."
     ),
-    input_schema={"model": str},
-    annotations=ToolAnnotations(readOnlyHint=True),
+    get_usage,
+    "duckdb_path",
 )
-async def get_usage_tool(args: dict) -> dict:
-    """Return usage statistics for the given model."""
-    model = args["model"].strip()
-    if not model:
-        return _json_result(None, error="model is required")
 
-    try:
-        result = get_usage(model, _DUCKDB_PATH)
-    except Exception as exc:
-        logger.exception("get_usage failed for %s", model)
-        return _json_result(None, error=str(exc))
-
-    return _json_result(result)
-
-
-# ---------------------------------------------------------------------------
-# Tool: get_last_change
-# ---------------------------------------------------------------------------
-
-
-@tool(
-    name="get_last_change",
-    description=(
+get_last_change_tool = _make_readonly_tool(
+    "get_last_change",
+    (
         "Get the last schema change recorded for a dbt model. Returns the "
         "timestamp (ISO-8601), change type (e.g. column_drop, refactor, column_add), "
         "author, and a summary. Use this to detect stale past discussions."
     ),
-    input_schema={"model": str},
-    annotations=ToolAnnotations(readOnlyHint=True),
+    get_last_change,
+    "duckdb_path",
 )
-async def get_last_change_tool(args: dict) -> dict:
-    """Return the last schema change for the given model."""
-    model = args["model"].strip()
-    if not model:
-        return _json_result(None, error="model is required")
-
-    try:
-        result = get_last_change(model, _DUCKDB_PATH)
-    except Exception as exc:
-        logger.exception("get_last_change failed for %s", model)
-        return _json_result(None, error=str(exc))
-
-    return _json_result(result)
 
 
 # ---------------------------------------------------------------------------
@@ -158,15 +146,57 @@ async def annotate_pr_tool(args: dict) -> dict:
         return _json_result(None, error="pr_id is required")
     if not summary:
         return _json_result(None, error="summary is required")
-    if not _GITHUB_TOKEN:
+
+    env = _get_env()
+    if not env.github_token:
         return _json_result(None, error="GITHUB_TOKEN is not configured")
-    if not _GITHUB_REPO:
+    if not env.github_repo:
         return _json_result(None, error="GITHUB_REPO is not configured")
 
     try:
-        result = annotate_pr(pr_id, summary, _GITHUB_REPO, _GITHUB_TOKEN)
+        result = annotate_pr(pr_id, summary, env.github_repo, env.github_token)
     except Exception as exc:
         logger.exception("annotate_pr failed for PR #%s", pr_id)
+        return _json_result(None, error=str(exc))
+
+    return _json_result(result)
+
+
+# ---------------------------------------------------------------------------
+# Tool: close_pr
+# ---------------------------------------------------------------------------
+
+
+@tool(
+    name="close_pr",
+    description=(
+        "Close a GitHub pull request, optionally leaving a comment first. "
+        "Use this when the impact analysis suggests the PR should not proceed "
+        "as-is and the team should realign before re-opening a fresh change. "
+        "The branch is preserved, so the PR can be reopened. Requires that "
+        "GITHUB_TOKEN and GITHUB_REPO environment variables are configured."
+    ),
+    input_schema={"pr_id": str, "comment": str},
+    annotations=ToolAnnotations(readOnlyHint=False),
+)
+async def close_pr_tool(args: dict) -> dict:
+    """Close a GitHub PR with an optional comment."""
+    pr_id = args.get("pr_id", "").strip()
+    comment = args.get("comment", "").strip()
+
+    if not pr_id:
+        return _json_result(None, error="pr_id is required")
+
+    env = _get_env()
+    if not env.github_token:
+        return _json_result(None, error="GITHUB_TOKEN is not configured")
+    if not env.github_repo:
+        return _json_result(None, error="GITHUB_REPO is not configured")
+
+    try:
+        result = close_pr(pr_id, env.github_repo, env.github_token, comment=comment or None)
+    except Exception as exc:
+        logger.exception("close_pr failed for PR #%s", pr_id)
         return _json_result(None, error=str(exc))
 
     return _json_result(result)
@@ -280,6 +310,9 @@ async def add_reaction_tool(args: dict) -> dict:
 # ---------------------------------------------------------------------------
 
 
+_POSTED_DIAGRAMS: set[str] = set()
+
+
 @tool(
     name="render_diagram_to_slack",
     description=(
@@ -322,7 +355,11 @@ async def add_reaction_tool(args: dict) -> dict:
     annotations=ToolAnnotations(readOnlyHint=True),
 )
 async def render_diagram_to_slack_tool(args: dict) -> dict:
-    """Render an agent-generated Mermaid diagram and post it as a Slack card."""
+    """Render an agent-generated Mermaid diagram and post it as a Slack card.
+
+    Idempotent: only one diagram is posted per message timestamp.
+    Subsequent calls for the same message return the cached URL.
+    """
     from tracey.agent.context import tracey_deps_var
 
     mermaid_syntax = args["mermaid_syntax"].strip()
@@ -337,6 +374,9 @@ async def render_diagram_to_slack_tool(args: dict) -> dict:
     deps = tracey_deps_var.get()
     if deps is None:
         return _json_result(None, error="Slack client not available")
+
+    if deps.message_ts in _POSTED_DIAGRAMS:
+        return _json_result({"diagram_url": "(already posted)", "playground_url": None})
 
     encoded = base64.urlsafe_b64encode(mermaid_syntax.encode()).decode().rstrip("=")
     mermaid_url = f"{_MERMAID_INK_BASE}/{encoded}"
@@ -378,6 +418,8 @@ async def render_diagram_to_slack_tool(args: dict) -> dict:
 
     files = upload_result.get("files", [])
     file_url = files[0].get("permalink", "") if files else ""
+
+    _POSTED_DIAGRAMS.add(deps.message_ts)
 
     return _json_result(
         {

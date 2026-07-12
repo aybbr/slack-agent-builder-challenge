@@ -4,35 +4,18 @@ from unittest.mock import AsyncMock
 import pytest
 
 import tracey.slack_agent.handlers as handlers_module
+from tracey.services.env_config import EnvConfig
 
 
 @pytest.fixture(autouse=True)
 def _clean_env(monkeypatch):
     """Ensure tests run with predictable environment variables."""
-    monkeypatch.setattr(
-        handlers_module,
-        "_MANIFEST_PATH",
-        "/tmp/test_manifest.json",
-    )
-    monkeypatch.setattr(
-        handlers_module,
-        "_DUCKDB_PATH",
-        "/tmp/test.duckdb",
-    )
-    monkeypatch.setattr(
-        handlers_module,
-        "_DBT_PROJECT_DIR",
-        "/tmp/test_compiled",
-    )
-    monkeypatch.setattr(
-        handlers_module,
-        "_GITHUB_TOKEN",
-        "ghp_test_token",
-    )
-    monkeypatch.setattr(
-        handlers_module,
-        "_GITHUB_REPO",
-        "test-org/test-repo",
+    handlers_module._ENV = EnvConfig(
+        manifest_path="/tmp/test_manifest.json",
+        duckdb_path="/tmp/test.duckdb",
+        github_token="ghp_test_token",
+        github_repo="test-org/test-repo",
+        dbt_project_dir="/tmp/test_compiled",
     )
     monkeypatch.setattr(
         handlers_module,

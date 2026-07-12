@@ -8,6 +8,8 @@ from tracey.slack_agent.handlers import (
     PROCESSED_MESSAGES,
     handle_annotate_pr,
     handle_annotate_pr_submission,
+    handle_close_pr,
+    handle_close_pr_submission,
     handle_generate_migration_plan,
     handle_mark_as_outdated,
     handle_message,
@@ -490,6 +492,132 @@ class TestHandleAnnotatePrSubmission:
             "state": {"values": {}},
         }
         await handle_annotate_pr_submission(ack, {"user": {"id": "U999"}}, mock_slack_client, view)
+        ack.assert_called_once()
+
+
+# ---- Close PR ----
+
+
+class TestHandleClosePr:
+    @pytest.mark.anyio
+    async def itShould_open_modal(self, mock_slack_client):
+        ack = AsyncMock()
+        body = _action_body()
+        await handle_close_pr(ack, body, mock_slack_client)
+
+        ack.assert_called_once()
+        mock_slack_client.views_open.assert_called_once()
+        view = mock_slack_client.views_open.call_args.kwargs["view"]
+        assert view["callback_id"] == "close_pr_modal"
+
+    @pytest.mark.anyio
+    async def itShould_prefill_pr_number_from_cache(self, mock_slack_client):
+        handlers_module._ANALYSIS_CACHE[("C123", "1234567890.123456")] = {"pr_number": "7"}
+        ack = AsyncMock()
+        await handle_close_pr(ack, _action_body(), mock_slack_client)
+
+        view = mock_slack_client.views_open.call_args.kwargs["view"]
+        pr_block = next(b for b in view["blocks"] if b.get("block_id") == "pr_number_block")
+        assert pr_block["element"]["initial_value"] == "7"
+
+
+class TestHandleClosePrSubmission:
+    @pytest.mark.anyio
+    async def itShould_close_and_confirm(self, mock_slack_client, mocker):
+        mock_close = mocker.patch(
+            "tracey.services.github_service.close_pr",
+            return_value={
+                "success": True,
+                "pr_url": "https://github.com/o/r/pull/42",
+                "state": "closed",
+            },
+        )
+
+        ack = AsyncMock()
+        view = {
+            "private_metadata": json.dumps(
+                {
+                    "model_name": "fct_sales_pipeline",
+                    "repo": "test-org/test-repo",
+                    "channel_id": "C123",
+                    "message_ts": "1234567890.123456",
+                }
+            ),
+            "state": {
+                "values": {
+                    "pr_number_block": {"pr_number_input": {"value": "42"}},
+                    "close_comment_block": {"close_comment_input": {"value": "Realign first"}},
+                },
+            },
+        }
+        await handle_close_pr_submission(ack, {"user": {"id": "U999"}}, mock_slack_client, view)
+
+        ack.assert_called_once()
+        mock_close.assert_called_once()
+        assert mock_close.call_args.kwargs["comment"] == "Realign first"
+        confirm_calls = [
+            c for c in mock_slack_client.chat_postMessage.call_args_list if "42" in str(c.kwargs.get("text", ""))
+        ]
+        assert len(confirm_calls) >= 1
+
+    @pytest.mark.anyio
+    async def itShould_close_without_comment(self, mock_slack_client, mocker):
+        mock_close = mocker.patch(
+            "tracey.services.github_service.close_pr",
+            return_value={"success": True, "pr_url": "https://github.com/o/r/pull/42", "state": "closed"},
+        )
+
+        ack = AsyncMock()
+        view = {
+            "private_metadata": json.dumps(
+                {
+                    "model_name": "fct_sales_pipeline",
+                    "repo": "test-org/test-repo",
+                    "channel_id": "C123",
+                    "message_ts": "1234567890.123456",
+                }
+            ),
+            "state": {
+                "values": {
+                    "pr_number_block": {"pr_number_input": {"value": "42"}},
+                    "close_comment_block": {"close_comment_input": {"value": None}},
+                },
+            },
+        }
+        await handle_close_pr_submission(ack, {"user": {"id": "U999"}}, mock_slack_client, view)
+
+        mock_close.assert_called_once()
+        assert mock_close.call_args.kwargs["comment"] is None
+
+    @pytest.mark.anyio
+    async def itShould_reject_empty_pr_id(self, mock_slack_client):
+        ack = AsyncMock()
+        view = {
+            "private_metadata": json.dumps(
+                {
+                    "model_name": "fct_sales_pipeline",
+                    "repo": "test-org/test-repo",
+                    "channel_id": "C123",
+                    "message_ts": "1234567890.123456",
+                }
+            ),
+            "state": {
+                "values": {
+                    "pr_number_block": {"pr_number_input": {"value": ""}},
+                    "close_comment_block": {"close_comment_input": {"value": ""}},
+                },
+            },
+        }
+        await handle_close_pr_submission(ack, {"user": {"id": "U999"}}, mock_slack_client, view)
+        ack_response = ack.call_args[0][0] if ack.call_args[0] else {}
+        assert "errors" in ack_response
+        assert "pr_number_block" in ack_response.get("errors", {})
+
+    @pytest.mark.anyio
+    async def itShould_handle_empty_private_metadata(self, mock_slack_client):
+        ack = AsyncMock()
+        view = {"private_metadata": "{}", "state": {"values": {}}}
+        await handle_close_pr_submission(ack, {"user": {"id": "U999"}}, mock_slack_client, view)
         ack.assert_called_once()
 
 

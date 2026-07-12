@@ -7,24 +7,27 @@ from tests.mcp_server.conftest import server_module
 
 
 class TestToolRegistration:
-    """Verify that all 4 Tracey-specific MCP tools are registered correctly."""
+    """Verify that all Tracey-specific MCP tools are registered correctly."""
 
     EXPECTED_TOOLS = {
         "get_migration_order",
         "get_usage",
         "get_last_change",
         "annotate_pr",
+        "close_pr",
     }
+
+    _NON_READ_ONLY = {"annotate_pr", "close_pr"}
 
     @pytest.fixture
     def component_names(self, mcp_server):
         provider = mcp_server._local_provider
         return set(provider._components.keys())
 
-    def itShould_register_four_tools(self, mcp_server):
+    def itShould_register_five_tools(self, mcp_server):
         provider = mcp_server._local_provider
         tool_components = {k for k in provider._components if k.startswith("tool:")}
-        assert len(tool_components) == 4
+        assert len(tool_components) == 5
 
     def itShould_register_all_expected_tool_names(self, mcp_server):
         provider = mcp_server._local_provider
@@ -37,7 +40,7 @@ class TestToolRegistration:
             if not key.startswith("tool:"):
                 continue
             tool_name = key.split("tool:")[1].split("@")[0]
-            if tool_name == "annotate_pr":
+            if tool_name in self._NON_READ_ONLY:
                 assert tool.annotations.readOnlyHint is False, f"{tool_name} should not be read-only"
             else:
                 assert tool.annotations.readOnlyHint is True, f"{tool_name} should be read-only"
@@ -163,6 +166,49 @@ class TestAnnotatePRTool:
         mocker.patch.object(server_module, "annotate_pr")
         tool = _find_tool(mcp_server, "annotate_pr")
         result = tool.fn("abc", "summary")
+        assert "error" in result
+
+
+class TestClosePRTool:
+    """Verify the close_pr tool validates input and delegates."""
+
+    def itShould_call_github_service(self, mcp_server, mocker):
+        mock_close = mocker.patch.object(
+            server_module,
+            "close_pr",
+            return_value={"success": True, "pr_url": "https://github.com/t", "state": "closed"},
+        )
+        tool = _find_tool(mcp_server, "close_pr")
+        result = tool.fn("42", "Realigning with data owners first")
+        mock_close.assert_called_once_with(
+            "42",
+            "test-org/test-repo",
+            "ghp_test_token",
+            comment="Realigning with data owners first",
+        )
+        assert result["success"] is True
+
+    def itShould_close_without_comment(self, mcp_server, mocker):
+        mock_close = mocker.patch.object(
+            server_module,
+            "close_pr",
+            return_value={"success": True, "pr_url": "https://github.com/t", "state": "closed"},
+        )
+        tool = _find_tool(mcp_server, "close_pr")
+        result = tool.fn("42")
+        assert mock_close.call_args.kwargs["comment"] is None
+        assert result["success"] is True
+
+    def itShould_reject_empty_pr_id(self, mcp_server, mocker):
+        mocker.patch.object(server_module, "close_pr")
+        tool = _find_tool(mcp_server, "close_pr")
+        result = tool.fn("")
+        assert "error" in result
+
+    def itShould_reject_non_numeric_pr_id(self, mcp_server, mocker):
+        mocker.patch.object(server_module, "close_pr")
+        tool = _find_tool(mcp_server, "close_pr")
+        result = tool.fn("abc")
         assert "error" in result
 
 

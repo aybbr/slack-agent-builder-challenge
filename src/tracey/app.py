@@ -3,7 +3,7 @@ import os
 
 from starlette.applications import Starlette
 from starlette.responses import JSONResponse
-from starlette.routing import Route
+from starlette.routing import Mount, Route
 
 from tracey.mcp_server.server import (
     _SKIP_SIGNATURE,
@@ -21,7 +21,7 @@ async def health(request):
 
 mcp_app = mcp.http_app(
     transport="http",
-    path="/mcp",
+    path="/",
     stateless_http=True,
     json_response=True,
 )
@@ -29,9 +29,9 @@ mcp_app = mcp.http_app(
 app = Starlette(
     routes=[
         Route("/health", health, methods=["GET"]),
-        Route(
+        Mount(
             "/mcp",
-            endpoint=SlackSignatureMiddleware(mcp_app),
+            app=SlackSignatureMiddleware(mcp_app),
         ),
     ],
     lifespan=mcp_app.lifespan,

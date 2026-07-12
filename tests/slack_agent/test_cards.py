@@ -1,8 +1,10 @@
 from tracey.slack_agent.cards import (
     build_checklist_blocks,
+    build_close_pr_modal,
     build_cross_team_summary_blocks,
     build_impact_card,
     build_marked_outdated_confirmation,
+    build_pr_closed_confirmation_blocks,
     build_pr_confirmation_blocks,
     build_pr_modal,
     build_stale_thread_block,
@@ -24,7 +26,7 @@ class TestBuildImpactCard:
         action_blocks = [b for b in blocks if b.get("type") == "actions"]
         assert len(action_blocks) >= 1
         elements = action_blocks[0].get("elements", [])
-        assert len(elements) == 4
+        assert len(elements) == 5
 
     def itShould_include_header_block(self, sample_analysis):
         blocks = build_impact_card(sample_analysis)
@@ -74,7 +76,7 @@ class TestBuildPrModal:
     def itShould_include_pr_number_input(self):
         view = build_pr_modal("fct_sales_pipeline")
         input_blocks = [b for b in view["blocks"] if b["type"] == "input"]
-        assert len(input_blocks) == 3
+        assert len(input_blocks) == 4
 
     def itShould_have_private_metadata(self):
         view = build_pr_modal("fct_sales_pipeline")
@@ -88,6 +90,40 @@ class TestBuildPrConfirmationBlocks:
 
     def itShould_handle_missing_pr_url(self):
         blocks = build_pr_confirmation_blocks("42", None, "fct_sales_pipeline")
+        assert isinstance(blocks, list)
+        assert len(blocks) >= 1
+
+
+class TestBuildClosePrModal:
+    def itShould_return_valid_modal_view(self):
+        view = build_close_pr_modal("fct_sales_pipeline")
+        assert view["type"] == "modal"
+        assert view["callback_id"] == "close_pr_modal"
+        assert "blocks" in view
+        assert view["submit"]["text"] == "Close PR"
+
+    def itShould_prefill_pr_number(self):
+        view = build_close_pr_modal("fct_sales_pipeline", pr_number="7")
+        pr_block = next(b for b in view["blocks"] if b.get("block_id") == "pr_number_block")
+        assert pr_block["element"]["initial_value"] == "7"
+
+    def itShould_include_optional_comment_input(self):
+        view = build_close_pr_modal("fct_sales_pipeline")
+        comment_block = next(b for b in view["blocks"] if b.get("block_id") == "close_comment_block")
+        assert comment_block["optional"] is True
+
+    def itShould_have_private_metadata(self):
+        view = build_close_pr_modal("fct_sales_pipeline")
+        assert "private_metadata" in view
+
+
+class TestBuildPrClosedConfirmationBlocks:
+    def itShould_include_pr_link_when_url_provided(self):
+        blocks = build_pr_closed_confirmation_blocks("42", "https://github.com/o/r/pull/42", "fct_sales_pipeline")
+        assert any("https://github.com" in str(b) for b in blocks)
+
+    def itShould_handle_missing_pr_url(self):
+        blocks = build_pr_closed_confirmation_blocks("42", None, "fct_sales_pipeline")
         assert isinstance(blocks, list)
         assert len(blocks) >= 1
 

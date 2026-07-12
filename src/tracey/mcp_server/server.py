@@ -9,22 +9,31 @@ from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from tracey.services.changelog_service import get_last_change
-from tracey.services.github_service import annotate_pr
+from tracey.services.env_config import EnvConfig
+from tracey.services.github_service import annotate_pr, close_pr
 from tracey.services.lineage_service import get_migration_order
 from tracey.services.usage_service import get_usage
 
 logger = logging.getLogger(__name__)
 
-_DUCKDB_PATH = os.environ.get("DUCKDB_PATH", "data/demo.duckdb")
-_MANIFEST_PATH = os.environ.get("MANIFEST_PATH", "dbt_project/target/manifest.json")
-_GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
-_GITHUB_REPO = os.environ.get("GITHUB_REPO", "")
 _SLACK_SIGNING_SECRET = os.environ.get("SLACK_SIGNING_SECRET", "")
 _SKIP_SIGNATURE = os.environ.get("TRACEY_SKIP_SIGNATURE_CHECK", "").lower() in (
     "1",
     "true",
     "yes",
 )
+
+
+def _get_env() -> EnvConfig:
+    """Return a cached snapshot of runtime environment configuration."""
+    return EnvConfig.from_env()
+
+
+def _require_asset_id(asset_id: str) -> dict | None:
+    """Return ``{"error": ...}`` if ``asset_id`` is empty, else ``None``."""
+    if not asset_id or not asset_id.strip():
+        return {"error": "asset_id must be a non-empty string"}
+    return None
 
 
 class SlackSignatureMiddleware:
@@ -83,9 +92,9 @@ mcp = FastMCP("tracey")
     annotations=ToolAnnotations(readOnlyHint=True),
 )
 def tool_get_migration_order(asset_id: str) -> dict:
-    if not asset_id or not asset_id.strip():
-        return {"error": "asset_id must be a non-empty string"}
-    return get_migration_order(asset_id.strip(), _MANIFEST_PATH)
+    if (err := _require_asset_id(asset_id)) is not None:
+        return err
+    return get_migration_order(asset_id.strip(), _get_env().manifest_path)
 
 
 @mcp.tool(
@@ -100,9 +109,9 @@ def tool_get_migration_order(asset_id: str) -> dict:
     annotations=ToolAnnotations(readOnlyHint=True),
 )
 def tool_get_usage(asset_id: str) -> dict:
-    if not asset_id or not asset_id.strip():
-        return {"error": "asset_id must be a non-empty string"}
-    return get_usage(asset_id.strip(), _DUCKDB_PATH)
+    if (err := _require_asset_id(asset_id)) is not None:
+        return err
+    return get_usage(asset_id.strip(), _get_env().duckdb_path)
 
 
 @mcp.tool(
@@ -118,9 +127,9 @@ def tool_get_usage(asset_id: str) -> dict:
     annotations=ToolAnnotations(readOnlyHint=True),
 )
 def tool_get_last_change(asset_id: str) -> dict:
-    if not asset_id or not asset_id.strip():
-        return {"error": "asset_id must be a non-empty string"}
-    return get_last_change(asset_id.strip(), _DUCKDB_PATH)
+    if (err := _require_asset_id(asset_id)) is not None:
+        return err
+    return get_last_change(asset_id.strip(), _get_env().duckdb_path)
 
 
 @mcp.tool(
@@ -140,10 +149,36 @@ def tool_annotate_pr(pr_id: str, summary: str) -> dict:
         return {"error": "pr_id must be a non-empty string"}
     if not summary or not summary.strip():
         return {"error": "summary must be a non-empty string"}
-    if not _GITHUB_TOKEN or not _GITHUB_REPO:
+    env = _get_env()
+    if not env.github_token or not env.github_repo:
         return {"error": ("GITHUB_TOKEN and GITHUB_REPO environment variables must be configured for PR annotation")}
     try:
         int(pr_id.strip())
     except ValueError:
         return {"error": f"Invalid PR number: {pr_id}"}
-    return annotate_pr(pr_id.strip(), summary.strip(), _GITHUB_REPO, _GITHUB_TOKEN)
+    return annotate_pr(pr_id.strip(), summary.strip(), env.github_repo, env.github_token)
+
+
+@mcp.tool(
+    name="close_pr",
+    title="Close Pull Request",
+    description=(
+        "Close a GitHub pull request, optionally leaving a comment first. "
+        "Use when a proposed change should not proceed as-is and the team "
+        "should realign before opening a fresh PR. The branch is preserved, "
+        "so the PR can be reopened. Requires a valid GITHUB_TOKEN and "
+        "GITHUB_REPO environment variable."
+    ),
+    annotations=ToolAnnotations(readOnlyHint=False),
+)
+def tool_close_pr(pr_id: str, comment: str = "") -> dict:
+    if not pr_id or not pr_id.strip():
+        return {"error": "pr_id must be a non-empty string"}
+    env = _get_env()
+    if not env.github_token or not env.github_repo:
+        return {"error": ("GITHUB_TOKEN and GITHUB_REPO environment variables must be configured to close a PR")}
+    try:
+        int(pr_id.strip())
+    except ValueError:
+        return {"error": f"Invalid PR number: {pr_id}"}
+    return close_pr(pr_id.strip(), env.github_repo, env.github_token, comment=comment.strip() or None)

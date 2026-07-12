@@ -13,6 +13,7 @@ from tracey.agent.deps import TraceyDeps
 from tracey.agent.tools import (
     add_reaction_tool,
     annotate_pr_tool,
+    close_pr_tool,
     get_last_change_tool,
     get_migration_order_tool,
     get_usage_tool,
@@ -87,6 +88,30 @@ class TestAnnotatePrTool:
     @pytest.mark.anyio
     async def itShould_reject_empty_pr_id(self):
         result = await annotate_pr_tool.handler({"pr_id": "", "summary": "test"})
+        assert "error" in str(result["content"][0]["text"])
+
+
+class TestClosePrTool:
+    @pytest.mark.anyio
+    async def itShould_return_json_result(self, mocker):
+        mocker.patch(
+            "tracey.agent.tools._get_env",
+            return_value=mocker.Mock(github_token="tok", github_repo="o/r"),
+        )
+        mock_close = mocker.patch(
+            "tracey.agent.tools.close_pr",
+            return_value={"success": True, "pr_url": "https://gh.com/1", "state": "closed"},
+        )
+        result = await close_pr_tool.handler(
+            {"pr_id": "42", "comment": "Realign first"},
+        )
+        assert "content" in result
+        mock_close.assert_called_once()
+        assert mock_close.call_args.kwargs["comment"] == "Realign first"
+
+    @pytest.mark.anyio
+    async def itShould_reject_empty_pr_id(self):
+        result = await close_pr_tool.handler({"pr_id": "", "comment": ""})
         assert "error" in str(result["content"][0]["text"])
 
 

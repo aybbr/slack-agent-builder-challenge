@@ -1,6 +1,6 @@
 from unittest.mock import MagicMock, patch
 
-from tracey.services.github_service import annotate_pr
+from tracey.services.github_service import annotate_pr, close_pr
 
 
 class TestAnnotatePr:
@@ -34,5 +34,59 @@ class TestAnnotatePr:
 
     def itShould_return_error_for_invalid_pr_id(self):
         result = annotate_pr("not-a-number", "summary", "owner/repo", "token")
+        assert "error" in result
+        assert "Invalid PR ID" in result["error"]
+
+
+class TestClosePr:
+    @patch("tracey.services.github_service.Github")
+    def itShould_close_with_comment(self, mock_github):
+        mock_pr = MagicMock()
+        mock_pr.html_url = "https://github.com/owner/repo/pull/42"
+        mock_repo = MagicMock()
+        mock_repo.get_pull.return_value = mock_pr
+        mock_gh_instance = MagicMock()
+        mock_gh_instance.get_repo.return_value = mock_repo
+        mock_github.return_value = mock_gh_instance
+
+        result = close_pr("42", "owner/repo", "fake-token", comment="Realigning first")
+
+        assert result["success"] is True
+        assert result["state"] == "closed"
+        assert result["pr_url"] == "https://github.com/owner/repo/pull/42"
+        mock_pr.create_issue_comment.assert_called_once_with("Realigning first")
+        mock_pr.edit.assert_called_once_with(state="closed")
+
+    @patch("tracey.services.github_service.Github")
+    def itShould_close_without_comment(self, mock_github):
+        mock_pr = MagicMock()
+        mock_pr.html_url = "https://github.com/owner/repo/pull/42"
+        mock_repo = MagicMock()
+        mock_repo.get_pull.return_value = mock_pr
+        mock_gh_instance = MagicMock()
+        mock_gh_instance.get_repo.return_value = mock_repo
+        mock_github.return_value = mock_gh_instance
+
+        result = close_pr("42", "owner/repo", "fake-token")
+
+        assert result["success"] is True
+        mock_pr.create_issue_comment.assert_not_called()
+        mock_pr.edit.assert_called_once_with(state="closed")
+
+    @patch("tracey.services.github_service.Github")
+    def itShould_return_error_on_api_failure(self, mock_github):
+        from github import GithubException
+
+        mock_gh_instance = MagicMock()
+        mock_gh_instance.get_repo.side_effect = GithubException(404, "Not Found", {})
+        mock_github.return_value = mock_gh_instance
+
+        result = close_pr("42", "owner/repo", "fake-token")
+
+        assert "error" in result
+        assert "Failed to close PR" in result["error"]
+
+    def itShould_return_error_for_invalid_pr_id(self):
+        result = close_pr("not-a-number", "owner/repo", "token")
         assert "error" in result
         assert "Invalid PR ID" in result["error"]
