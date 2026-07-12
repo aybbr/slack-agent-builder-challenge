@@ -28,6 +28,7 @@ dev = [
 [project.scripts]
 tracey = "tracey.app:main"
 slack-agent = "tracey.slack_agent.app:main"
+tracey-dev = "tracey.dev_app:main"
 
 [tool.ruff]
 line-length = 120
