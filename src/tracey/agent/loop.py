@@ -2,10 +2,15 @@
 
 MCP server configuration is delegated to ``agent/mcp_config.py`` so that
 adding a new external server does not require touching the agent loop.
+
+Real-time plan blocks are supported via an optional ``on_plan_update``
+async callback.  The handler wires this callback to Slack's ``plan`` Block
+Kit blocks, updating the thread as tool calls progress.
 """
 
 import logging
 import os
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 
 from claude_agent_sdk import (
@@ -14,6 +19,9 @@ from claude_agent_sdk import (
     ClaudeSDKClient,
     ResultMessage,
     TextBlock,
+    ToolResultBlock,
+    ToolUseBlock,
+    UserMessage,
     create_sdk_mcp_server,
 )
 
@@ -24,6 +32,7 @@ from tracey.agent.system_prompt import TRACEY_SYSTEM_PROMPT
 from tracey.agent.tools import (
     add_reaction_tool,
     annotate_pr_tool,
+    close_pr_tool,
     get_last_change_tool,
     get_migration_order_tool,
     get_usage_tool,
@@ -32,6 +41,13 @@ from tracey.agent.tools import (
 )
 
 logger = logging.getLogger(__name__)
+
+PlanCallback = Callable[[str, str, str], Awaitable[None]]
+"""Async callback receiving (task_id, tool_name, status).
+
+Status is one of ``"in_progress"``, ``"complete"``, or ``"error"``.
+Called once when a tool use begins and again when its result arrives.
+"""
 
 _DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
 _ANTHROPIC_BASE_URL = os.environ.get("ANTHROPIC_BASE_URL", "https://api.deepseek.com/anthropic")
@@ -55,6 +71,7 @@ tracey_tools_server = create_sdk_mcp_server(
         get_usage_tool,
         get_last_change_tool,
         annotate_pr_tool,
+        close_pr_tool,
         search_slack_threads_tool,
         add_reaction_tool,
         render_diagram_to_slack_tool,
@@ -66,6 +83,7 @@ async def run_tracey_agent(
     text: str,
     session_id: str | None = None,
     deps: TraceyDeps | None = None,
+    on_plan_update: PlanCallback | None = None,
 ) -> tuple[str, str | None]:
     """Run the Tracey agent with the given message and optional session.
 
@@ -73,6 +91,9 @@ async def run_tracey_agent(
         text: The channel message text to evaluate.
         session_id: Resume a previous conversation. ``None`` for a new thread.
         deps: Runtime dependencies for tools (Slack client + context).
+        on_plan_update: Optional async callback for real-time plan block
+            updates.  Receives (task_id, tool_name, status) on every
+            tool use / tool result.  ``None`` disables plan tracking.
 
     Returns:
         ``(response_text, new_session_id)`` — ``response_text`` may be empty
@@ -115,6 +136,7 @@ async def run_tracey_agent(
 
     response_parts: list[str] = []
     new_session_id: str | None = None
+    tool_names: dict[str, str] = {}
 
     try:
         async with ClaudeSDKClient(options) as client:
@@ -125,8 +147,25 @@ async def run_tracey_agent(
                     for block in message.content:
                         if isinstance(block, TextBlock):
                             response_parts.append(block.text)
+                        elif isinstance(block, ToolUseBlock):
+                            tool_names[block.id] = block.name
+                            if on_plan_update and block.name.startswith("mcp__"):
+                                await on_plan_update(block.id, block.name, "in_progress")
+
+                elif isinstance(message, UserMessage):
+                    for block in message.content:
+                        if isinstance(block, ToolResultBlock):
+                            name = tool_names.get(block.tool_use_id, "unknown")
+                            status = "error" if block.is_error else "complete"
+                            if block.is_error:
+                                detail = str(block.content)[:300] if block.content else "(no content)"
+                                logger.warning("Tool failed — %s (id=%s): %s", name, block.tool_use_id, detail)
+                            if on_plan_update and name.startswith("mcp__"):
+                                await on_plan_update(block.tool_use_id, name, status)
+
                 if isinstance(message, ResultMessage):
                     new_session_id = message.session_id
+
     except Exception as exc:
         logger.exception("Agent invocation failed")
         return (

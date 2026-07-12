@@ -1,3 +1,4 @@
+import base64
 import json
 import logging
 
@@ -8,9 +9,11 @@ ACTION_IDS = {
     "generate_migration_plan": "generate_migration_plan",
     "mark_as_outdated": "mark_as_outdated",
     "annotate_pr": "annotate_pr",
+    "close_pr": "close_pr",
 }
 
 ANNOTATE_PR_MODAL_CALLBACK = "annotate_pr_modal"
+CLOSE_PR_MODAL_CALLBACK = "close_pr_modal"
 
 _MODEL_NAME_LABEL = "model_name"
 _IMPACT_SUMMARY_LABEL = "impact_summary"
@@ -53,7 +56,7 @@ def build_impact_card(analysis: dict) -> list[dict]:
 
     _add_migration_preview(blocks, migration_order)
 
-    _add_social_impact(blocks, experts, stale_threads, last_change)
+    _add_cross_team_awareness(blocks, experts, stale_threads, last_change)
 
     blocks.append(_actions_block(model, channel_id, message_ts))
 
@@ -192,15 +195,24 @@ def build_stale_thread_block(
     ]
 
 
-def build_pr_modal(model_name: str) -> dict:
+def build_pr_modal(model_name: str, pr_number: str | None = None) -> dict:
     """Build a Slack modal view for collecting PR annotation details.
 
     Args:
         model_name: Name of the dbt model being annotated.
+        pr_number: Optional PR number to pre-fill the input (from context).
 
     Returns:
         A Slack view payload dict suitable for ``views.open``.
     """
+    pr_element: dict = {
+        "type": "plain_text_input",
+        "action_id": "pr_number_input",
+        "placeholder": {"type": "plain_text", "text": "e.g. 42", "emoji": True},
+    }
+    if pr_number:
+        pr_element["initial_value"] = pr_number
+
     return {
         "type": "modal",
         "callback_id": ANNOTATE_PR_MODAL_CALLBACK,
@@ -211,15 +223,7 @@ def build_pr_modal(model_name: str) -> dict:
             {
                 "type": "input",
                 "block_id": "pr_number_block",
-                "element": {
-                    "type": "plain_text_input",
-                    "action_id": "pr_number_input",
-                    "placeholder": {
-                        "type": "plain_text",
-                        "text": "e.g. 42",
-                        "emoji": True,
-                    },
-                },
+                "element": pr_element,
                 "label": {
                     "type": "plain_text",
                     "text": "Pull Request Number",
@@ -242,13 +246,34 @@ def build_pr_modal(model_name: str) -> dict:
                 },
                 "label": {
                     "type": "plain_text",
-                    "text": "Custom Summary (optional)",
+                    "text": "Custom Summary",
+                    "emoji": True,
+                },
+            },
+            {
+                "type": "input",
+                "block_id": "labels_block",
+                "optional": True,
+                "element": {
+                    "type": "plain_text_input",
+                    "action_id": "labels_input",
+                    "initial_value": "do not merge",
+                    "placeholder": {
+                        "type": "plain_text",
+                        "text": "Comma-separated labels, e.g. do not merge, needs-review",
+                        "emoji": True,
+                    },
+                },
+                "label": {
+                    "type": "plain_text",
+                    "text": "Labels",
                     "emoji": True,
                 },
             },
             {
                 "type": "input",
                 "block_id": "include_summary_block",
+                "optional": True,
                 "element": {
                     "type": "checkboxes",
                     "action_id": "include_summary_checkbox",
@@ -305,6 +330,120 @@ def build_pr_confirmation_blocks(
             "text": {
                 "type": "mrkdwn",
                 "text": (f":white_check_mark: Impact analysis annotated on PR *{pr_id}* for `{model_name}`."),
+            },
+        },
+    ]
+
+    if pr_url:
+        blocks.append(
+            {
+                "type": "context",
+                "elements": [
+                    {
+                        "type": "mrkdwn",
+                        "text": f"<{pr_url}|View PR #{pr_id}>",
+                    },
+                ],
+            }
+        )
+
+    return blocks
+
+
+def build_close_pr_modal(model_name: str, pr_number: str | None = None) -> dict:
+    """Build a Slack modal view for closing a PR with an optional comment.
+
+    The modal itself is the confirmation step for this destructive action —
+    the user must click the red ``Close PR`` submit button.
+
+    Args:
+        model_name: Name of the dbt model discussed in the thread.
+        pr_number: Optional PR number to pre-fill the input (from context).
+
+    Returns:
+        A Slack view payload dict suitable for ``views.open``.
+    """
+    pr_element: dict = {
+        "type": "plain_text_input",
+        "action_id": "pr_number_input",
+        "placeholder": {"type": "plain_text", "text": "e.g. 42", "emoji": True},
+    }
+    if pr_number:
+        pr_element["initial_value"] = pr_number
+
+    return {
+        "type": "modal",
+        "callback_id": CLOSE_PR_MODAL_CALLBACK,
+        "title": {"type": "plain_text", "text": "Close PR", "emoji": True},
+        "submit": {"type": "plain_text", "text": "Close PR", "emoji": True},
+        "close": {"type": "plain_text", "text": "Cancel", "emoji": True},
+        "blocks": [
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": (
+                        f":warning: This will *close* the pull request for `{model_name}`. "
+                        "The branch is preserved, so it can be reopened later."
+                    ),
+                },
+            },
+            {
+                "type": "input",
+                "block_id": "pr_number_block",
+                "element": pr_element,
+                "label": {
+                    "type": "plain_text",
+                    "text": "Pull Request Number",
+                    "emoji": True,
+                },
+            },
+            {
+                "type": "input",
+                "block_id": "close_comment_block",
+                "optional": True,
+                "element": {
+                    "type": "plain_text_input",
+                    "action_id": "close_comment_input",
+                    "multiline": True,
+                    "placeholder": {
+                        "type": "plain_text",
+                        "text": "Optional reason for closing (posted as a PR comment)...",
+                        "emoji": True,
+                    },
+                },
+                "label": {
+                    "type": "plain_text",
+                    "text": "Closing Comment",
+                    "emoji": True,
+                },
+            },
+        ],
+        "private_metadata": json.dumps({_MODEL_NAME_LABEL: model_name}),
+    }
+
+
+def build_pr_closed_confirmation_blocks(
+    pr_id: str,
+    pr_url: str | None,
+    model_name: str,
+) -> list[dict]:
+    """Build a Block Kit confirmation posted after a PR is closed.
+
+    Args:
+        pr_id: The pull request number.
+        pr_url: Full URL to the PR (from github_service.close_pr).
+        model_name: Name of the model discussed in the thread.
+
+    Returns:
+        List of Slack Block Kit block dicts.
+    """
+    blocks: list[dict] = [
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": (f":lock: Closed PR *{pr_id}* for `{model_name}`. Reopen it if the team decides to proceed."),
             },
         },
     ]
@@ -456,91 +595,6 @@ def build_markdown_summary(analysis: dict) -> str:
     return "\n".join(lines)
 
 
-def build_diagram_card(
-    diagram_url: str,
-    title: str,
-    subtitle: str = "",
-    playground_url: str | None = None,
-) -> list[dict]:
-    """Build a Slack ``card`` block with a hero image showing a rendered diagram.
-
-    Args:
-        diagram_url: Publicly-accessible URL of the rendered diagram image.
-        title: Card title (e.g. ``"Impact Lineage"``).
-        subtitle: Optional mrkdwn subtitle.
-        playground_url: Optional Mermaid Chart link for interactive editing.
-
-    Returns:
-        A list containing a single card block dict.
-    """
-    card: dict = {
-        "type": "card",
-        "hero_image": {
-            "type": "image",
-            "image_url": diagram_url,
-            "alt_text": title,
-        },
-        "title": {
-            "type": "mrkdwn",
-            "text": title,
-            "verbatim": True,
-        },
-    }
-
-    if subtitle:
-        card["subtitle"] = {
-            "type": "mrkdwn",
-            "text": subtitle,
-            "verbatim": False,
-        }
-
-    if playground_url:
-        card["actions"] = [
-            {
-                "type": "button",
-                "text": {"type": "plain_text", "text": "Open in Mermaid Chart", "emoji": True},
-                "url": playground_url,
-            },
-        ]
-
-    return [card]
-
-
-def build_diagram_image(
-    diagram_url: str,
-    title: str,
-    playground_url: str | None = None,
-) -> list[dict]:
-    """Build a full-width image block for a rendered diagram with optional link.
-
-    Returns an ``image`` block (renders at full message width) followed
-    by an optional context block with a playground link.
-    """
-    blocks: list[dict] = [
-        {
-            "type": "image",
-            "title": {"type": "plain_text", "text": title, "emoji": True},
-            "image_url": diagram_url,
-            "alt_text": title,
-        },
-    ]
-
-    if playground_url:
-        blocks.append(
-            {
-                "type": "context",
-                "elements": [
-                    {
-                        "type": "mrkdwn",
-                        "text": f"<{playground_url}|Open in Mermaid Chart>",
-                    },
-                ],
-            }
-        )
-
-    return blocks
-
-
 def build_impact_header(
     model_name: str,
     downstream_count: int,
@@ -570,7 +624,7 @@ def build_impact_header(
             "elements": [
                 {
                     "type": "mrkdwn",
-                    "text": " · ".join(stats),
+                    "text": " · ".join(stats) if stats else "_No downstream impact detected_",
                 },
             ],
         },
@@ -642,11 +696,12 @@ def build_migration_preview_section(migration_order: dict) -> list[dict] | None:
     ]
 
 
-def build_social_section(
+def build_cross_team_section(
     experts: list[str],
     stale_threads: list[dict],
-) -> list[dict] | None:
-    """Build section blocks with social impact summary."""
+    last_change: dict | None = None,
+) -> list[dict]:
+    """Build section blocks with cross-team awareness summary."""
     if not experts and not stale_threads:
         return None
 
@@ -787,7 +842,7 @@ def build_outdated_modal(
                     "type": "section",
                     "text": {
                         "type": "mrkdwn",
-                        "text": ":white_check_mark: No outdated threads detected for `{model_name}`.",
+                        "text": f":white_check_mark: No outdated threads detected for `{model_name}`.",
                     },
                 },
             ],
@@ -1030,7 +1085,7 @@ def _add_migration_preview(blocks: list[dict], migration_order: dict) -> None:
     )
 
 
-def _add_social_impact(
+def _add_cross_team_awareness(
     blocks: list[dict],
     experts: list[str],
     stale_threads: list[dict],
@@ -1061,7 +1116,22 @@ def _actions_block(
     model: str,
     channel_id: str,
     message_ts: str,
-) -> dict:
+    visible: set[str] | None = None,
+) -> dict | None:
+    """Build the action buttons block, optionally gated by ``visible``.
+
+    When ``visible`` is ``None``, all four buttons are rendered (backward-
+    compatible fallback).  Otherwise only the buttons whose keys appear in
+    ``visible`` are included.  Returns ``None`` when no buttons would be
+    shown (empty ``visible`` set).
+
+    Key mapping:
+        ``"review"`` → Start Cross-Team Review
+        ``"migration"`` → Generate Migration Plan
+        ``"outdated"`` → Mark as Outdated
+        ``"pr"`` → Annotate PR
+        ``"close_pr"`` → Close PR
+    """
     context = json.dumps(
         {
             "model": model,
@@ -1070,54 +1140,141 @@ def _actions_block(
         }
     )
 
+    _ALL_BUTTONS = (
+        ("review", "Start Cross-Team Review", ACTION_IDS["start_cross_team_review"], "primary"),
+        ("migration", "Generate Migration Plan", ACTION_IDS["generate_migration_plan"], None),
+        ("outdated", "Mark as Outdated", ACTION_IDS["mark_as_outdated"], None),
+        ("pr", "Annotate PR", ACTION_IDS["annotate_pr"], "primary"),
+        ("close_pr", "Close PR", ACTION_IDS["close_pr"], "danger"),
+    )
+
+    elements: list[dict] = []
+    for key, label, action_id, style in _ALL_BUTTONS:
+        if visible is not None and key not in visible:
+            continue
+        btn: dict = {
+            "type": "button",
+            "text": {"type": "plain_text", "text": label, "emoji": True},
+            "action_id": action_id,
+            "value": context,
+        }
+        if style:
+            btn["style"] = style
+        elements.append(btn)
+
+    if not elements:
+        return None
+
     return {
         "type": "actions",
         "block_id": "impact_actions",
-        "elements": [
-            {
-                "type": "button",
-                "text": {
-                    "type": "plain_text",
-                    "text": "Start Cross-Team Review",
-                    "emoji": True,
-                },
-                "style": "primary",
-                "action_id": ACTION_IDS["start_cross_team_review"],
-                "value": context,
-            },
-            {
-                "type": "button",
-                "text": {
-                    "type": "plain_text",
-                    "text": "Generate Migration Plan",
-                    "emoji": True,
-                },
-                "action_id": ACTION_IDS["generate_migration_plan"],
-                "value": context,
-            },
-            {
-                "type": "button",
-                "text": {
-                    "type": "plain_text",
-                    "text": "Mark as Outdated",
-                    "emoji": True,
-                },
-                "action_id": ACTION_IDS["mark_as_outdated"],
-                "value": context,
-            },
-            {
-                "type": "button",
-                "text": {
-                    "type": "plain_text",
-                    "text": "Annotate PR",
-                    "emoji": True,
-                },
-                "style": "primary",
-                "action_id": ACTION_IDS["annotate_pr"],
-                "value": context,
-            },
-        ],
+        "elements": elements,
     }
+
+
+_MERMAID_INK_BASE = "https://mermaid.ink/img"
+
+
+async def _render_mermaid_to_slack(
+    mermaid_syntax: str,
+    title: str,
+    channel_id: str,
+    thread_ts: str,
+    client,
+) -> str | None:
+    """Render Mermaid syntax to PNG via mermaid.ink and upload to Slack.
+
+    Returns the file permalink on success, ``None`` on failure.
+    Can raise ``aiohttp.ClientError``, ``SlackApiError``.
+    """
+    import aiohttp
+    from slack_sdk.errors import SlackApiError as _SlackApiError
+
+    encoded = base64.urlsafe_b64encode(mermaid_syntax.encode()).decode().rstrip("=")
+    mermaid_url = f"{_MERMAID_INK_BASE}/{encoded}"
+
+    async with aiohttp.ClientSession() as session:
+        resp = await session.get(mermaid_url)
+        try:
+            if resp.status != 200:
+                logger.warning("mermaid.ink returned HTTP %d", resp.status)
+                return None
+            image_bytes = await resp.read()
+        finally:
+            resp.close()
+
+    try:
+        upload_result = await client.files_upload_v2(
+            channel=channel_id,
+            thread_ts=thread_ts,
+            file=image_bytes,
+            filename=f"migration_{thread_ts}.png",
+            title=title,
+        )
+    except _SlackApiError:
+        logger.exception("Slack file upload failed for migration diagram")
+        return None
+
+    files = upload_result.get("files", [])
+    return files[0].get("permalink", "") if files else None
+
+
+def build_migration_diagram_syntax(
+    model: str,
+    migration_order: list[dict],
+    lineage: dict,
+) -> str:
+    """Build Mermaid ``flowchart LR`` syntax for a topologically sorted migration.
+
+    The source model is highlighted; downstream nodes are numbered with their
+    migration step.  Cross-domain nodes get an orange colour and ⚠️ marker.
+    """
+    downstream: list = lineage.get("downstream", [])
+    source_domain = lineage.get("domain", "")
+    domain_map: dict[str, str] = {d.get("name", ""): d.get("domain", "") for d in downstream}
+    domain_map[model] = source_domain
+
+    order_map: dict[str, int] = {}
+    for step in migration_order:
+        name = step.get("id", "") if isinstance(step, dict) else str(step)
+        order_map[name] = step.get("order", 99) if isinstance(step, dict) else 99
+
+    sorted_models = sorted(order_map.items(), key=lambda x: (x[1], x[0]))
+    sorted_names = [m for m, _ in sorted_models if m != model]
+    if model not in order_map:
+        sorted_names.insert(0, model)
+
+    def _node_id(name: str) -> str:
+        return name.replace("-", "_").replace(".", "_")
+
+    def _label(name: str) -> str:
+        domain = domain_map.get(name, "")
+        step = order_map.get(name, "")
+        step_str = f"Step {step}: " if step else ""
+        extra = f"\\n{domain}" if domain else ""
+        cross = " ⚠️" if domain and domain != source_domain else ""
+        return f'["`{step_str}**{name}**{cross}{extra}`"]'
+
+    lines = ["flowchart LR"]
+    for name in sorted_names:
+        nid = _node_id(name)
+        domain = domain_map.get(name, "")
+        if name == model:
+            style = "fill:#a5d8ff,stroke:#4a9eed,stroke-width:3px"
+        elif domain != source_domain:
+            style = "fill:#ffd8a8,stroke:#f59e0b"
+        else:
+            style = "fill:#b2f2bb,stroke:#22c55e"
+        lines.append(f"    style {nid} {style}")
+
+    for name in sorted_names:
+        nid = _node_id(name)
+        lines.append(f"    {nid}{_label(name)}")
+
+    for i in range(len(sorted_names) - 1):
+        lines.append(f"    {_node_id(sorted_names[i])} --> {_node_id(sorted_names[i + 1])}")
+
+    return "\n".join(lines)
 
 
 def _summarise_tests(
@@ -1141,3 +1298,76 @@ def _summarise_tests(
         result += f" (includes {len(referential_tests)} referential test(s) owned by {', '.join(sorted(ref_models))})"
 
     return result
+
+
+_TOOL_DISPLAY_NAMES: dict[str, str] = {
+    "mcp__dbt__get_lineage_dev": "Tracing dbt lineage",
+    "mcp__dbt__get_node_details_dev": "Loading model details",
+    "mcp__dbt__get_all_models": "Listing dbt models",
+    "mcp__dbt__get_model_health": "Checking model health",
+    "mcp__dbt__get_column_lineage": "Tracing column lineage",
+    "mcp__tracey-tools__get_migration_order": "Computing migration order",
+    "mcp__tracey-tools__get_usage": "Gathering usage stats",
+    "mcp__tracey-tools__get_last_change": "Checking last change",
+    "mcp__tracey-tools__search_slack_threads": "Searching Slack discussions",
+    "mcp__tracey-tools__render_diagram_to_slack": "Rendering lineage diagram",
+    "mcp__tracey-tools__annotate_pr": "Annotating pull request",
+    "mcp__tracey-tools__close_pr": "Closing pull request",
+    "mcp__tracey-tools__add_reaction": "Adding reaction",
+    "mcp__mermaid__validate_and_render_mermaid_diagram": "Validating diagram syntax",
+    "mcp__mermaid__get_diagram_title": "Generating diagram title",
+    "mcp__mermaid__get_diagram_summary": "Summarising diagram",
+}
+
+
+def _friendly_tool_name(tool_name: str) -> str:
+    """Map an MCP-namespaced tool name to a short display label."""
+    return _TOOL_DISPLAY_NAMES.get(tool_name, tool_name.rsplit("__", 1)[-1].replace("_", " ").title())
+
+
+def build_plan_block(tasks: list[dict]) -> dict:
+    """Build a Slack plan block showing the agent's task progress.
+
+    Args:
+        tasks: List of dicts with keys ``task_id`` (str), ``name`` (str),
+            ``status`` (str — ``in_progress``, ``complete``, or ``error``),
+            and optional ``error`` (str).
+
+    Returns:
+        A ``"type": "plan"`` Block Kit block dict.
+    """
+    task_cards: list[dict] = []
+    for t in tasks:
+        card: dict = {
+            "type": "task_card",
+            "task_id": t["task_id"],
+            "title": _friendly_tool_name(t["name"]),
+            "status": t["status"],
+        }
+        if t["status"] == "error":
+            card["details"] = {
+                "type": "rich_text",
+                "elements": [
+                    {
+                        "type": "rich_text_section",
+                        "elements": [{"type": "text", "text": t.get("error", "Tool execution failed")}],
+                    }
+                ],
+            }
+        if t["status"] == "complete":
+            card["output"] = {
+                "type": "rich_text",
+                "elements": [
+                    {
+                        "type": "rich_text_section",
+                        "elements": [{"type": "text", "text": "Done"}],
+                    }
+                ],
+            }
+        task_cards.append(card)
+
+    return {
+        "type": "plan",
+        "title": "Agent thinking steps",
+        "tasks": task_cards,
+    }
