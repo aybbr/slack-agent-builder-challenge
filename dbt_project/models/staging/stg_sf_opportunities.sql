@@ -1,5 +1,5 @@
 select
-    opportunity_id,
+    opportunity_id as opportunity_uuid,
     account_id,
     amount,
     stage,
