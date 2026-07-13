@@ -419,6 +419,7 @@ async def _search_slack_threads(model: str) -> list[dict]:
                 "sort": "timestamp",
                 "sort_dir": "desc",
                 "limit": 20,
+                "include_bots": True,
             },
         )
         return response.get("results", {}).get("messages", [])
