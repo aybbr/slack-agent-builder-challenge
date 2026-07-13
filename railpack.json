@@ -1,7 +1,5 @@
 {
-  "provider": {
-    "name": "python"
-  },
+  "provider": "python",
   "build": {
     "install": {
       "cmd": "pip install uv && uv sync"
