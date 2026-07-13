@@ -243,6 +243,7 @@ async def search_slack_threads_tool(args: dict) -> dict:
                 "sort": "timestamp",
                 "sort_dir": "desc",
                 "limit": 20,
+                "include_bots": True,
             },
         )
         messages = response.get("results", {}).get("messages", [])
