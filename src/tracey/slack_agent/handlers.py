@@ -154,9 +154,9 @@ async def handle_message(
         _BOT_USER_ID = context.get("bot_user_id", "")
     try:
         if event.get("subtype") is not None:
-            return
+            return {"ok": True}
         if event.get("bot_id") is not None:
-            return
+            return {"ok": True}
 
         channel_id = event.get("channel", "")
         message_ts = event.get("ts", "")
