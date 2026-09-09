@@ -1,13 +1,19 @@
 <p align="center"><img src="tracey_logo.jpg" width="200"></p>
 
-# Tracey
-
-A Slack agent that detects dbt model changes in data team channels, runs automated impact analysis, and surfaces what a full lineage graph, what would break, who needs to be looped-in for cross-team alignment using Slack RTS.
+<div align="center">
 
 [![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://python.org)
 [![Slack Bolt](https://img.shields.io/badge/Slack%20Bolt-1.29.0-4A154B.svg)](https://slack.dev/bolt-python/)
 [![FastMCP](https://img.shields.io/badge/FastMCP-3.4.2-green.svg)](https://github.com/jlowin/fastmcp)
 [![dbt](https://img.shields.io/badge/dbt-1.11-FF694B.svg)](https://www.getdbt.com)
+
+</div>
+
+# Tracey
+
+A Slack agent that detects dbt model changes in data team channels, runs automated impact analysis, and surfaces what a full lineage graph, what would break, who needs to be looped-in for cross-team alignment using Slack RTS.
+
+[Watch a demo video](https://www.youtube.com/watch?v=3N6vgnzv3Gc)
 
 ---
 
