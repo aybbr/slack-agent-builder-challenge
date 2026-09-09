@@ -60,7 +60,7 @@ _TARGET_CHANNEL_IDS: frozenset[str] = frozenset(
     cid.strip() for cid in os.environ.get("SLACK_TARGET_CHANNEL_IDS", "").split(",") if cid.strip()
 )
 
-_BOT_USER_ID: str = "A0BF7MKNEN5"
+_BOT_USER_ID: str = ""
 
 _MAX_CACHE_SIZE = 100
 _MAX_PROCESSED_SIZE = 1000

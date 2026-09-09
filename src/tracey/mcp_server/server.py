@@ -49,7 +49,7 @@ class SlackSignatureMiddleware:
 
     def __init__(self, app: ASGIApp) -> None:
         self._app = app
-        self._verifier = SignatureVerifier(_SLACK_SIGNING_SECRET)
+        self._verifier = SignatureVerifier(_SLACK_SIGNING_SECRET) if _SLACK_SIGNING_SECRET else None
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
@@ -59,7 +59,9 @@ class SlackSignatureMiddleware:
         request = Request(scope, receive, send)
         body = await request.body()
 
-        if not _SKIP_SIGNATURE and not self._verifier.is_valid_request(body, dict(request.headers)):
+        if not _SKIP_SIGNATURE and (
+            self._verifier is None or not self._verifier.is_valid_request(body, dict(request.headers))
+        ):
             response = JSONResponse(
                 {
                     "jsonrpc": "2.0",

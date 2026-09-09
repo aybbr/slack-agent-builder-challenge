@@ -1,0 +1,14 @@
+.git/
+.gitignore
+.venv/
+__pycache__/
+*.py[cod]
+tests/
+logs/
+.pytest_cache/
+.ruff_cache/
+.env
+.env.example
+.railway/
+Makefile
+tracey_logo.jpg

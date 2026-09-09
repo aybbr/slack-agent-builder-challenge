@@ -230,6 +230,14 @@ AGENTS.md
 ROADMAP.md
 SPECS.md
 
+# dbt build artifacts
+dbt_project/target/graph.gpickle
+dbt_project/target/graph_summary.json
+dbt_project/target/partial_parse.msgpack
+dbt_project/target/run_results.json
+dbt_project/target/semantic_manifest.json
+dbt_project/target/run/
+
 # opencode
 opencode.json
 

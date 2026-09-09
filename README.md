@@ -107,9 +107,28 @@ This creates 4 channels (`#sales-data`, `#finance-data`, `#product-data`, `#data
 
 ---
 
-## Deployment (Railway)
+## Deployment
 
-Two services both expose `GET /health`. `railpack.json` configures the build (`pip install uv && uv sync`); `railway.json` provides health checks and restart policy.
+### Containers (Rancher Desktop, Docker, or Podman)
+
+A single `Dockerfile` builds both services; `compose.yaml` runs them together. Works with any Docker-compatible runtime — Rancher Desktop, Docker Desktop, or Podman:
+
+```bash
+make build     # docker build -t tracey .
+make up        # docker compose up   (mcp on :8000, slack-agent on :8001)
+make down      # docker compose down
+```
+
+Set the required environment variables in a local `.env` file (see below) — `compose.yaml` loads it automatically.
+
+### Railway
+
+Both services are built from the `Dockerfile` at the repo root and expose `GET /health`. Create two services pointing at this repo and set the start command per service:
+
+| Service      | Start command     | Health check |
+| ------------ | ----------------- | ------------ |
+| `mcp`        | `tracey`          | `/health`    |
+| `slack-agent`| `slack-agent`     | `/health`    |
 
 After deployment, update your Slack app's Event Subscriptions and Interactivity Request URLs to point at the `slack-agent` service, and configure the Slackbot MCP Client to point at the `mcp` service's `/mcp` endpoint.
 

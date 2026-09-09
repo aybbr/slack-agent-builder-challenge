@@ -1,13 +1,21 @@
 # Tracey — Makefile
 # =============================================================================
 # RAILWAY DEPLOYMENT (two services from one repo):
-#   1. In Railway dashboard, create two services pointing at this repo:
-#        mcp           → start command: uv run mcp-server
-#        slack-agent   → start command: uv run slack-agent
-#   2. Railpack auto-detects Python/UV via pyproject.toml.
+#   1. Each Railway service builds from the Dockerfile at the repo root.
+#   2. Set the start command per service:
+#        mcp           → start command: tracey
+#        slack-agent   → start command: slack-agent
+#   3. Health check path: /health
+#
+# LOCAL CONTAINERS:
+#   make build   → build the image
+#   make up      → run both services via compose
+#   make down    → stop both services
 # =============================================================================
 
-.PHONY: setup seed-data dbt-run run-app run-slack-agent run-dev seed-slack test lint format
+CONTAINER ?= docker
+
+.PHONY: setup seed-data dbt-run run-app run-slack-agent run-dev seed-slack test lint format build up down
 
 setup:
 	uv sync --extra dev
@@ -38,6 +46,15 @@ lint:
 
 format:
 	uv run ruff format
+
+build:
+	$(CONTAINER) build -t tracey .
+
+up:
+	$(CONTAINER) compose up
+
+down:
+	$(CONTAINER) compose down
 
 test: lint
 	uv run python -m pytest
