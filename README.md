@@ -1,13 +1,19 @@
 <p align="center"><img src="tracey_logo.jpg" width="200"></p>
 
-# Tracey
-
-A Slack agent that detects dbt model changes in data team channels, runs automated impact analysis, and surfaces what a full lineage graph, what would break, who needs to be looped-in for cross-team alignment using Slack RTS.
+<div align="center">
 
 [![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://python.org)
 [![Slack Bolt](https://img.shields.io/badge/Slack%20Bolt-1.29.0-4A154B.svg)](https://slack.dev/bolt-python/)
 [![FastMCP](https://img.shields.io/badge/FastMCP-3.4.2-green.svg)](https://github.com/jlowin/fastmcp)
 [![dbt](https://img.shields.io/badge/dbt-1.11-FF694B.svg)](https://www.getdbt.com)
+
+</div>
+
+# Tracey
+
+A Slack agent that detects dbt model changes in data team channels, runs automated impact analysis, and surfaces what a full lineage graph, what would break, who needs to be looped-in for cross-team alignment using Slack RTS.
+
+[Watch a demo video](https://www.youtube.com/watch?v=3N6vgnzv3Gc)
 
 ---
 
@@ -107,9 +113,28 @@ This creates 4 channels (`#sales-data`, `#finance-data`, `#product-data`, `#data
 
 ---
 
-## Deployment (Railway)
+## Deployment
 
-Two services both expose `GET /health`. `railpack.json` configures the build (`pip install uv && uv sync`); `railway.json` provides health checks and restart policy.
+### Containers (Rancher Desktop, Docker, or Podman)
+
+A single `Dockerfile` builds both services; `compose.yaml` runs them together. Works with any Docker-compatible runtime — Rancher Desktop, Docker Desktop, or Podman:
+
+```bash
+make build     # docker build -t tracey .
+make up        # docker compose up   (mcp on :8000, slack-agent on :8001)
+make down      # docker compose down
+```
+
+Set the required environment variables in a local `.env` file (see below) — `compose.yaml` loads it automatically.
+
+### Railway
+
+Both services are built from the `Dockerfile` at the repo root and expose `GET /health`. Create two services pointing at this repo and set the start command per service:
+
+| Service      | Start command     | Health check |
+| ------------ | ----------------- | ------------ |
+| `mcp`        | `tracey`          | `/health`    |
+| `slack-agent`| `slack-agent`     | `/health`    |
 
 After deployment, update your Slack app's Event Subscriptions and Interactivity Request URLs to point at the `slack-agent` service, and configure the Slackbot MCP Client to point at the `mcp` service's `/mcp` endpoint.
 

@@ -13,7 +13,7 @@
   },
   "oauth_config": {
     "redirect_urls": [
-      "https://slackbot-mcp-example.vercel.app/slack/oauth_redirect"
+      "https://your-domain.railway.app/slack/oauth_redirect"
     ],
     "scopes": {
       "bot": [

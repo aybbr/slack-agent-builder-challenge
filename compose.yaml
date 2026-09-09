@@ -1,0 +1,42 @@
+services:
+  mcp:
+    build: .
+    command: ["tracey"]
+    env_file:
+      - .env
+    environment:
+      PORT: "8000"
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  slack-agent:
+    build: .
+    command: ["slack-agent"]
+    env_file:
+      - .env
+    environment:
+      PORT: "8000"
+    ports:
+      - "8001:8000"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
